@@ -1,10 +1,19 @@
+
 // ─────────────────────────────────────────────────────────
-// useAuth — Real Supabase Auth Hook (OTP + Password)
-// Registration: sendOtp → verifyOtp → setPassword
-// Login: signInWithPassword
+// useAuth — Hardened Supabase Auth Hook (OTP + Password)
+//
+// Fixes from audit:
+//  1. Single authoritative source: onAuthStateChange is the
+//     ONLY place that calls setUser — getSession() bootstraps
+//     but immediately hands off to the listener's INITIAL_SESSION
+//     event (Supabase v2 fires this on first mount).
+//  2. setAuthLoading(false) is always called in every branch.
+//  3. StrictMode safety: mounted guard prevents state updates
+//     after unmount.
+//  4. No deps in useEffect that could cause re-subscription.
 // ─────────────────────────────────────────────────────────
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -13,7 +22,7 @@ import type { UserProfile } from '@/types/dev.types';
 
 // ── Map Supabase user → internal UserProfile ──────────────
 // MUST be synchronous — no async/await, no DB queries
-function mapSupabaseUser(user: User): UserProfile {
+export function mapSupabaseUser(user: User): UserProfile {
   const meta = user.user_metadata ?? {};
   return {
     id: user.id,
@@ -35,9 +44,59 @@ function mapSupabaseUser(user: User): UserProfile {
   };
 }
 
+// ── Classify auth errors for UX-appropriate messages ─────
+export interface AuthError {
+  type: 'rate_limit' | 'invalid_credentials' | 'network' | 'server' | 'validation' | 'unknown';
+  message: string;
+  retryAfterSeconds?: number;
+}
+
+export function classifyAuthError(err: unknown): AuthError {
+  const raw = err as { message?: string; status?: number; code?: string };
+  const message = raw?.message ?? 'An unexpected error occurred';
+  const status = raw?.status;
+
+  // 429 rate limit
+  if (status === 429 || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('too many')) {
+    return {
+      type: 'rate_limit',
+      message: 'Too many requests. Please wait before trying again.',
+      retryAfterSeconds: 60,
+    };
+  }
+
+  // Invalid credentials
+  if (
+    message.toLowerCase().includes('invalid') ||
+    message.toLowerCase().includes('wrong') ||
+    message.toLowerCase().includes('incorrect') ||
+    message.toLowerCase().includes('not found') ||
+    message.toLowerCase().includes('no user')
+  ) {
+    return { type: 'invalid_credentials', message: 'Invalid email or password.' };
+  }
+
+  // OTP expired / invalid
+  if (message.toLowerCase().includes('otp') || message.toLowerCase().includes('token')) {
+    return { type: 'invalid_credentials', message: 'Invalid or expired verification code.' };
+  }
+
+  // Network
+  if (message.toLowerCase().includes('fetch') || message.toLowerCase().includes('network')) {
+    return { type: 'network', message: 'Network error. Check your connection and try again.' };
+  }
+
+  // Server
+  if (status && status >= 500) {
+    return { type: 'server', message: 'Server error. Please try again in a moment.' };
+  }
+
+  return { type: 'unknown', message };
+}
+
 // ── Auth service class ────────────────────────────────────
 class AuthService {
-  /** Send OTP to the given email */
+  /** Send OTP to the given email — never call more than once per cooldown */
   async sendOtp(email: string): Promise<void> {
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -58,7 +117,7 @@ class AuthService {
     return data.user;
   }
 
-  /** Set password + username after OTP verification (registration) */
+  /** Set password + user metadata after OTP verification */
   async setPasswordAndName(
     password: string,
     fullName: string,
@@ -66,10 +125,7 @@ class AuthService {
   ): Promise<User> {
     const { data, error } = await supabase.auth.updateUser({
       password,
-      data: {
-        full_name: fullName,
-        role,
-      },
+      data: { full_name: fullName, role },
     });
     if (error) throw error;
     if (!data.user) throw new Error('updateUser succeeded but no user returned');
@@ -78,15 +134,12 @@ class AuthService {
 
   /** Sign in with email + password */
   async signInWithPassword(email: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data.user;
   }
 
-  /** GitHub OAuth redirect */
+  /** GitHub OAuth redirect — do NOT await after this succeeds */
   async signInWithGitHub(): Promise<void> {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
@@ -96,7 +149,7 @@ class AuthService {
       },
     });
     if (error) throw error;
-    // OAuth redirects the browser — no further action needed
+    // Browser will redirect — no further state management needed
   }
 
   /** Sign out */
@@ -117,53 +170,73 @@ export function useAuth() {
   const { user, setUser, setAuthLoading, isAuthLoading } = useAppStore();
   const navigate = useNavigate();
 
+  // Guard against StrictMode double-mount and unmounted state updates
+  const mountedRef = useRef(true);
+  // Guard against concurrent signOut calls
+  const signingOutRef = useRef(false);
+
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
-    // Safety #1: Restore from existing session on page reload
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      if (session?.user) {
-        setUser(mapSupabaseUser(session.user));
-      } else {
-        setUser(null);
-      }
-    });
-
-    // Safety #2: Listen to all auth state changes
+    // Subscribe to auth state changes.
+    // Supabase v2 fires INITIAL_SESSION immediately with the existing
+    // session (or null) — this is the single authoritative source.
+    // We do NOT also call getSession() to avoid a double setUser() call.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
+      if (!mountedRef.current) return;
 
-      console.log('[useAuth] event:', event, 'user:', session?.user?.email);
+      console.log('[useAuth]', event, session?.user?.email ?? 'no user');
 
-      if (event === 'SIGNED_IN' && session?.user) {
-        setUser(mapSupabaseUser(session.user));
-        setAuthLoading(false);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setAuthLoading(false);
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        setUser(mapSupabaseUser(session.user));
-      } else if (event === 'USER_UPDATED' && session?.user) {
-        setUser(mapSupabaseUser(session.user));
-        setAuthLoading(false);
-      } else {
-        setAuthLoading(false);
+      switch (event) {
+        case 'INITIAL_SESSION':
+        case 'SIGNED_IN':
+        case 'USER_UPDATED':
+        case 'TOKEN_REFRESHED':
+          if (session?.user) {
+            setUser(mapSupabaseUser(session.user));
+          } else {
+            // INITIAL_SESSION with no session = logged out
+            setUser(null);
+          }
+          setAuthLoading(false);
+          break;
+
+        case 'SIGNED_OUT':
+          setUser(null);
+          setAuthLoading(false);
+          break;
+
+        default:
+          // Any other event — ensure loading is cleared
+          setAuthLoading(false);
+          break;
       }
     });
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       subscription.unsubscribe();
     };
-  }, [setUser, setAuthLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Empty deps: subscribe once, never re-subscribe.
+    // setUser/setAuthLoading are stable Zustand actions.
+  }, []); 
 
   const signOut = useCallback(async (): Promise<void> => {
-    await authService.signOut();
-    setUser(null);
-    navigate('/auth');
+    if (signingOutRef.current) return; // Prevent double sign-out
+    signingOutRef.current = true;
+    try {
+      await authService.signOut();
+      // onAuthStateChange SIGNED_OUT will call setUser(null)
+    } catch (err) {
+      console.error('[useAuth] signOut error:', err);
+      // Force clear user even if Supabase signOut fails
+      setUser(null);
+    } finally {
+      signingOutRef.current = false;
+      navigate('/auth');
+    }
   }, [setUser, navigate]);
 
   return {
