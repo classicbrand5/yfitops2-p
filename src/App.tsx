@@ -74,7 +74,7 @@ const App = () => (
 
           {/* App routes — inside AppShell */}
           <Route element={<AppShell />}>
-            <Route path="/home" element={<Index />} />
+            <Route index path="/home" element={<Index />} />
             <Route path="/dashboard" element={
               <Suspense fallback={<PageFallback />}>
                 <Dashboard />

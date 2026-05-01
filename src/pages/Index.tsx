@@ -16,13 +16,19 @@ export default function Index() {
     <div
       className="min-h-screen flex items-center justify-center"
       style={{ background: '#060609' }}
+      aria-label="Loading YFitOps"
     >
       <div className="flex items-center gap-3">
         <div
-          className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin"
+          className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
           style={{ borderColor: '#00F5A0', borderTopColor: 'transparent' }}
+          role="status"
+          aria-label="Loading"
         />
-        <span className="text-sm" style={{ color: '#5C5C7A', fontFamily: 'var(--font-body)' }}>
+        <span
+          className="text-sm"
+          style={{ color: '#5C5C7A', fontFamily: 'var(--font-body)' }}
+        >
           Loading YFitOps…
         </span>
       </div>
