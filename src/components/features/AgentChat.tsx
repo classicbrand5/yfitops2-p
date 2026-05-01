@@ -30,13 +30,18 @@ import {
   GitPullRequest,
   FileText,
   AlertCircle,
-  Plus,
   Loader2,
   Sparkles,
+  Play,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AgentAction, AgentMessage, AgentResponse } from '@/types/agent.types';
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { executeAction, isFileSystemAction } from '@/agent/executeAction';
+import { buildFileTree } from '@/core/webcontainer/fs';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import type { WebContainer } from '@webcontainer/api';
 
 // ── Action type → icon + label ────────────────────────────
 const ACTION_META: Record<
@@ -53,8 +58,21 @@ const ACTION_META: Record<
   open_pr:      { Icon: GitPullRequest,label: 'Open PR',      color: '#00F5A0' },
 };
 
+// ── Destructive action types ─────────────────────────────
+const DESTRUCTIVE_TYPES: AgentAction['type'][] = ['delete_file', 'open_pr'];
+
 // ── ActionCard ────────────────────────────────────────────
-function ActionCard({ action }: { action: AgentAction }) {
+function ActionCard({
+  action,
+  onApply,
+  onReview,
+  isExecuting,
+}: {
+  action: AgentAction;
+  onApply: (action: AgentAction) => void;
+  onReview: (action: AgentAction) => void;
+  isExecuting: boolean;
+}) {
   const meta = ACTION_META[action.type] ?? {
     Icon: Sparkles,
     label: action.type,
@@ -132,6 +150,43 @@ function ActionCard({ action }: { action: AgentAction }) {
         <p className="text-xs leading-relaxed" style={{ color: '#5C5C7A' }}>
           {action.explanation}
         </p>
+
+        {/* Apply / Review button — shown when action is still pending */}
+        {action.status === 'pending' && action.type !== 'open_pr' && (
+          <button
+            type="button"
+            disabled={isExecuting}
+            onClick={() => {
+              if (action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type)) {
+                onReview(action);
+              } else {
+                onApply(action);
+              }
+            }}
+            className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type)
+                ? 'rgba(251,191,36,0.1)'
+                : 'rgba(0,245,160,0.1)',
+              border: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type)
+                ? '1px solid rgba(251,191,36,0.25)'
+                : '1px solid rgba(0,245,160,0.25)',
+              color: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type)
+                ? '#FBBF24'
+                : '#00F5A0',
+            }}
+          >
+            {isExecuting ? (
+              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+            ) : action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? (
+              <Eye className="w-2.5 h-2.5" />
+            ) : (
+              <Play className="w-2.5 h-2.5" />
+            )}
+            {action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? 'Review' : 'Apply'}
+          </button>
+        )}
+
         {action.result && (
           <div
             className="mt-1.5 rounded px-2 py-1 text-xs"
@@ -170,7 +225,17 @@ function ThinkingDots() {
 }
 
 // ── MessageBubble ─────────────────────────────────────────
-function MessageBubble({ msg }: { msg: AgentMessage }) {
+function MessageBubble({
+  msg,
+  onApply,
+  onReview,
+  executingActionId,
+}: {
+  msg: AgentMessage;
+  onApply: (action: AgentAction) => void;
+  onReview: (action: AgentAction) => void;
+  executingActionId: string | null;
+}) {
   const isUser = msg.role === 'user';
 
   return (
@@ -226,7 +291,13 @@ function MessageBubble({ msg }: { msg: AgentMessage }) {
         {msg.actions && msg.actions.length > 0 && (
           <div className="mt-1">
             {msg.actions.map((action, idx) => (
-              <ActionCard key={idx} action={action} />
+              <ActionCard
+                key={idx}
+                action={action}
+                onApply={onApply}
+                onReview={onReview}
+                isExecuting={executingActionId === `${msg.id}-${idx}`}
+              />
             ))}
           </div>
         )}
@@ -259,9 +330,11 @@ export function AgentChat() {
   const createNewConversation = useAppStore((s) => s.createNewConversation);
   const addMessage           = useAppStore((s) => s.addMessage);
   const updateMessage        = useAppStore((s) => s.updateMessage);
+  const updateActionStatus   = useAppStore((s) => s.updateActionStatus);
   const setIsThinking        = useAppStore((s) => s.setIsThinking);
   const isThinking           = useAppStore((s) => s.isThinking);
   const expertMode           = useAppStore((s) => s.expertMode);
+  const setFileTree          = useAppStore((s) => s.setFileTree);
 
   // Workspace context selectors
   const fileTree          = useAppStore((s) => s.fileTree);
@@ -269,6 +342,17 @@ export function AgentChat() {
   const activeTabId       = useAppStore((s) => s.activeTabId);
   const terminalSessions  = useAppStore((s) => s.terminalSessions);
   const activeTerminalId  = useAppStore((s) => s.activeTerminalId);
+
+  // Phase 7: action execution state
+  const [pendingAction, setPendingAction] = useState<{
+    action: AgentAction;
+    msgId: string;
+    actionIdx: number;
+  } | null>(null);
+  const [executingActionId, setExecutingActionId] = useState<string | null>(null);
+  // WebContainer instance is accessed via store — we re-use the singleton
+  // through the module-level import since hooks can't be called conditionally
+  const containerRef = useRef<WebContainer | null>(null);
 
   // Derive current messages
   // Subscribe reactively
@@ -288,6 +372,21 @@ export function AgentChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [reactiveMessages, isThinking]);
 
+  // ── Acquire WebContainer reference once it boots ────────
+  // We subscribe to window.__yfitops_container set by useWebContainer
+  useEffect(() => {
+    // Poll until container is available (set by useWebContainer singleton)
+    const check = () => {
+      const wc = (window as any).__yfitops_container as WebContainer | undefined;
+      if (wc) {
+        containerRef.current = wc;
+      }
+    };
+    check();
+    const interval = setInterval(check, 500);
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Auto-resize textarea ──────────────────────────────
   useEffect(() => {
     const ta = textareaRef.current;
@@ -295,6 +394,87 @@ export function AgentChat() {
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [input]);
+
+  // ── Action execution helpers ──────────────────────────
+  const refreshTree = useCallback(async () => {
+    const wc = containerRef.current;
+    if (!wc) return;
+    try {
+      const tree = await buildFileTree(wc, '/');
+      setFileTree(tree);
+    } catch (err) {
+      console.warn('[AgentChat] Tree refresh failed:', err);
+    }
+  }, [setFileTree]);
+
+  const runAction = useCallback(async (
+    action: AgentAction,
+    msgId: string,
+    actionIdx: number,
+  ) => {
+    const wc = containerRef.current;
+    if (!wc) {
+      toast.error('Workspace not ready — wait for WebContainer to boot');
+      return;
+    }
+
+    const execKey = `${msgId}-${actionIdx}`;
+    setExecutingActionId(execKey);
+    updateActionStatus(msgId, actionIdx, 'executing');
+
+    const result = await executeAction(wc, action);
+
+    updateActionStatus(
+      msgId,
+      actionIdx,
+      result.success ? 'done' : 'failed',
+      result,
+    );
+    setExecutingActionId(null);
+
+    if (result.success) {
+      toast.success(result.output ?? 'Action completed');
+      if (isFileSystemAction(action.type)) {
+        await refreshTree();
+      }
+    } else {
+      toast.error(result.error ?? 'Action failed');
+    }
+  }, [updateActionStatus, refreshTree]);
+
+  // Called from ActionCard "Apply" button (no confirmation needed)
+  const handleApplyAction = useCallback((
+    action: AgentAction,
+  ) => {
+    // Find the message and index
+    const msgs = useAppStore.getState().messages[activeConversationId ?? ''] ?? [];
+    for (const msg of msgs) {
+      if (!msg.actions) continue;
+      const idx = msg.actions.findIndex((a) => a === action);
+      if (idx !== -1) {
+        runAction(action, msg.id, idx);
+        return;
+      }
+    }
+    // Fallback — action reference didn't match, still execute
+    runAction(action, 'unknown', 0);
+  }, [activeConversationId, runAction]);
+
+  // Called from ActionCard "Review" button (needs confirmation)
+  const handleReviewAction = useCallback((
+    action: AgentAction,
+  ) => {
+    const msgs = useAppStore.getState().messages[activeConversationId ?? ''] ?? [];
+    for (const msg of msgs) {
+      if (!msg.actions) continue;
+      const idx = msg.actions.findIndex((a) => a === action);
+      if (idx !== -1) {
+        setPendingAction({ action, msgId: msg.id, actionIdx: idx });
+        return;
+      }
+    }
+    setPendingAction({ action, msgId: 'unknown', actionIdx: 0 });
+  }, [activeConversationId]);
 
   // ── Build workspace context ───────────────────────────
   const buildContext = useCallback(() => {
@@ -460,7 +640,13 @@ export function AgentChat() {
         )}
 
         {reactiveMessages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} />
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            onApply={handleApplyAction}
+            onReview={handleReviewAction}
+            executingActionId={executingActionId}
+          />
         ))}
 
         <div ref={messagesEndRef} />
@@ -524,6 +710,32 @@ export function AgentChat() {
           Enter to send · Shift+Enter for newline
         </p>
       </div>
+
+      {/* ── Confirmation modal ─────────────────────────── */}
+      <ConfirmModal
+        open={!!pendingAction}
+        title={`Confirm: ${pendingAction?.action.type.replace(/_/g, ' ')}`}
+        description={
+          pendingAction
+            ? `${pendingAction.action.explanation}${
+                pendingAction.action.path ? ` — ${pendingAction.action.path}` : ''
+              }${
+                pendingAction.action.command
+                  ? ` — $ ${pendingAction.action.command} ${pendingAction.action.args?.join(' ') ?? ''}`
+                  : ''
+              }`
+            : ''
+        }
+        detail={pendingAction?.action.content?.slice(0, 400)}
+        isDestructive={DESTRUCTIVE_TYPES.includes(pendingAction?.action.type ?? 'read_file')}
+        onConfirm={() => {
+          if (pendingAction) {
+            runAction(pendingAction.action, pendingAction.msgId, pendingAction.actionIdx);
+            setPendingAction(null);
+          }
+        }}
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 }

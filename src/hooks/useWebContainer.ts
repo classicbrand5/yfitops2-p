@@ -47,6 +47,8 @@ export function useWebContainer() {
         if (cancelled) return;
 
         setContainer(wc);
+        // Expose singleton for components that can't use the hook (AgentChat action executor)
+        (window as any).__yfitops_container = wc;
 
         // Build and store the initial file tree
         const tree = await buildFileTree(wc, '/');

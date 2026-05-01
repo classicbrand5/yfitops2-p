@@ -144,15 +144,38 @@ This document tracks everything that was intentionally deferred, skipped, partia
 
 ### ⚠️ Deferred / Skipped
 - **Streaming responses** — the edge function returns a complete response. Token-by-token streaming via SSE is not implemented. The placeholder bubble shows ThinkingDots until the full response arrives.
-- **Action execution** — `AgentAction` items are rendered as cards but never actually executed. No bridge between the action card and WebContainer FS / process API exists.
-- **Confirmation modal for destructive actions** — `requiresConfirmation: true` actions show a "needs approval" badge but there is no approve/reject UI flow.
+- **Action execution** — ✅ Completed in Phase 7.
+- **Confirmation modal for destructive actions** — ✅ Completed in Phase 7.
 - **Rollback on failure** — no pre-action snapshots are taken; failed actions cannot be undone.
 - **Conversation persistence to Supabase** — conversations live only in Zustand + localStorage. Switching devices or clearing storage loses all chat history.
 - **Conversation list / history sidebar** — no UI to browse past conversations; only the active conversation is shown.
-- **Conversation title generation** — new conversations are titled "New Task". The spec mentioned auto-generating a title from the first user message (e.g., via a second AI call).
+- **Conversation title generation** — new conversations are titled "New Task". Auto-generating a title from the first user message (via a second AI call) is not implemented.
 - **`expertMode` steps display** — `response.steps.draft` and `response.steps.critique` are returned by the edge function in expert mode but are not rendered in the UI.
 - **Agent context: active file content** — the agent receives the active file's *path* but not its *content*. Reading the file content from WebContainer and including it in the context would make the agent significantly more useful.
 - **Rate limiting / usage tracking** — `profiles.ai_requests_used` exists in the DB but is never incremented from the frontend or checked before invoking the edge function.
+
+---
+
+## Phase 7 — Agent Action Execution
+
+### ✅ Completed
+- `src/agent/executeAction.ts` — routes all 8 `AgentActionType` values to WebContainer FS / process API
+- `ensureParentDir()` — auto-creates parent directories before `write_file`
+- Minimal unified diff applicator (`applyDiff`) for `edit_file` with `diff` field
+- `isFileSystemAction()` — determines whether file tree needs refresh
+- `src/components/ui/ConfirmModal.tsx` — glassmorphism modal with Escape-to-cancel, auto-focus, destructive (red) and approve (mint) variants
+- `ActionCard` Apply/Review buttons — Apply for safe actions (instant), Review for destructive/requiresConfirmation (opens modal)
+- `executingActionId` state — shows spinner on active button while executing
+- `updateActionStatus()` called at each stage: `executing` → `done` | `failed`
+- File tree refresh via `buildFileTree()` + `setFileTree()` after FS mutations
+- WebContainer reference exposed via `window.__yfitops_container` from `useWebContainer`
+- `containerRef` poll in AgentChat (500ms interval) acquires container without prop-drilling
+
+### ⚠️ Deferred / Skipped
+- **Rollback on failure** — no pre-action snapshots; failed writes cannot be automatically undone
+- **`run_command` quoted args** — commands with quoted arguments may not parse correctly (only splits on whitespace)
+- **`search_files` content search** — current implementation only matches filenames, not file content
+- **`open_pr` execution** — informational only; requires GitHub API integration (Phase 8)
 
 ---
 
