@@ -16,9 +16,10 @@ import { FileTree } from '@/components/features/FileTree';
 import { RealTerminalPanel } from '@/components/features/RealTerminalPanel';
 import { useWebContainer } from '@/hooks/useWebContainer';
 import { MonacoEditor } from '@/components/features/Editor/MonacoEditor';
+import { AgentChat } from '@/components/features/AgentChat';
 import {
   FolderOpen, Code2, Terminal, Bot,
-  Plus, X, Zap, AlertTriangle, RefreshCw,
+  Plus, X, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────
@@ -185,81 +186,9 @@ function TerminalBody({ container }: TerminalBodyProps) {
   );
 }
 
-// ── Chat Body — placeholder until Phase 6 ────────────────
+// ── Chat Body — Phase 6: real AgentChat ──────────────────
 function ChatBody() {
-  const { conversations, messages, activeConversationId, isThinking, createNewConversation } = useAppStore();
-  const convoMsgs = activeConversationId ? (messages[activeConversationId] ?? []) : [];
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#2A2A35 transparent' }}>
-        {convoMsgs.length > 0 ? (
-          convoMsgs.map((msg) => (
-            <div
-              key={msg.id}
-              className="text-xs leading-relaxed rounded-lg px-3 py-2"
-              style={{
-                background: msg.role === 'user' ? 'rgba(0,245,160,0.06)' : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${msg.role === 'user' ? 'rgba(0,245,160,0.15)' : 'rgba(255,255,255,0.05)'}`,
-                color: '#9494B8',
-              }}
-            >
-              <span style={{ color: msg.role === 'user' ? '#00F5A0' : '#9B6EF5', fontWeight: 600 }}>
-                {msg.role === 'user' ? 'You' : 'YFitOps AI'}
-              </span>
-              <p className="mt-1">{msg.content}</p>
-            </div>
-          ))
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center p-4" style={{ color: '#3A3A52' }}>
-            <Bot className="w-10 h-10 mb-3 opacity-20" style={{ color: '#9B6EF5' }} />
-            <p className="text-xs font-medium mb-1" style={{ color: '#5C5C7A' }}>AI Agent Chat</p>
-            <p className="text-xs leading-relaxed">Autonomous execution, streaming responses, and action cards — Phase 6</p>
-            {conversations.length === 0 && (
-              <button
-                type="button"
-                onClick={createNewConversation}
-                className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium"
-                style={{ background: 'rgba(155,110,245,0.08)', border: '1px solid rgba(155,110,245,0.2)', color: '#9B6EF5' }}
-              >
-                <Plus className="w-3 h-3" />
-                New Conversation
-              </button>
-            )}
-          </div>
-        )}
-        {isThinking && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(155,110,245,0.06)', border: '1px solid rgba(155,110,245,0.15)' }}>
-            <div className="w-3 h-3 rounded-full border border-t-transparent animate-spin" style={{ borderColor: '#9B6EF5', borderTopColor: 'transparent' }} />
-            <span className="text-xs" style={{ color: '#9B6EF5' }}>YFitOps is thinking…</span>
-          </div>
-        )}
-      </div>
-
-      {/* Input (disabled until Phase 6) */}
-      <div className="p-2 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: '#13131C', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <input
-            type="text"
-            placeholder="Ask YFitOps… (Phase 6)"
-            className="flex-1 text-xs outline-none bg-transparent"
-            style={{ color: '#EEEEFF', fontFamily: 'var(--font-body)' }}
-            disabled
-          />
-          <button
-            type="button"
-            disabled
-            className="flex items-center justify-center w-7 h-7 rounded-lg opacity-40"
-            style={{ background: 'rgba(0,245,160,0.12)', color: '#00F5A0' }}
-            aria-label="Send message"
-          >
-            <Zap className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return <AgentChat />;
 }
 
 // ─────────────────────────────────────────────────────────
