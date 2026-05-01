@@ -8,7 +8,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed for auto-commit
+      contents: write       # needed for auto-commit of lockfile
+      deployments: write    # needed for Cloudflare Pages action to create a deployment
 
     steps:
       - name: Checkout repository
