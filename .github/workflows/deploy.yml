@@ -21,7 +21,12 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies (allow lockfile update)
-        run: npm install   # will regenerate lockfile if needed
+        run: |
+          # Ensure monaco-editor is present (Phase 5)
+          if ! grep -q '"monaco-editor"' package.json; then
+            npm install monaco-editor@^0.52.0 --save
+          fi
+          npm install   # will regenerate lockfile if needed
 
       - name: Commit updated lockfile
         uses: stefanzweifel/git-auto-commit-action@v5

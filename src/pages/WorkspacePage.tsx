@@ -15,6 +15,7 @@ import { PanelShell } from '@/components/features/PanelShell';
 import { FileTree } from '@/components/features/FileTree';
 import { RealTerminalPanel } from '@/components/features/RealTerminalPanel';
 import { useWebContainer } from '@/hooks/useWebContainer';
+import { MonacoEditor } from '@/components/features/Editor/MonacoEditor';
 import {
   FolderOpen, Code2, Terminal, Bot,
   Plus, X, Zap, AlertTriangle, RefreshCw,
@@ -91,7 +92,6 @@ function EditorTab({
 // ── Editor Body ───────────────────────────────────────────
 function EditorBody() {
   const { openTabs, activeTabId } = useAppStore();
-  const activeTab = openTabs.find((t) => t.id === activeTabId);
 
   return (
     <div className="flex flex-col h-full">
@@ -102,9 +102,9 @@ function EditorBody() {
           role="tablist"
           aria-label="Open editor tabs"
           style={{
-            background: '#111118',
+            background: '#0D0D14',
             borderBottom: '1px solid rgba(255,255,255,0.05)',
-            minHeight: '32px',
+            minHeight: '33px',
             scrollbarWidth: 'thin',
             scrollbarColor: '#2A2A35 transparent',
           }}
@@ -115,29 +115,9 @@ function EditorBody() {
         </div>
       )}
 
-      {/* Editor area — Monaco wired in Phase 5 */}
-      <div className="flex-1 flex items-center justify-center p-6 text-center" style={{ color: '#3A3A52' }}>
-        {activeTab ? (
-          <div>
-            <Code2 className="w-8 h-8 mb-3 opacity-30 mx-auto" />
-            <p className="text-xs font-medium mb-1" style={{ color: '#5C5C7A', fontFamily: 'var(--font-mono)' }}>
-              {activeTab.path}
-            </p>
-            <p className="text-xs leading-relaxed" style={{ color: '#3A3A52' }}>
-              Monaco Editor integration — Phase 5
-            </p>
-          </div>
-        ) : (
-          <div>
-            <Code2 className="w-10 h-10 mb-3 opacity-20 mx-auto" />
-            <p className="text-xs font-medium mb-1.5" style={{ color: '#5C5C7A' }}>
-              No file open
-            </p>
-            <p className="text-xs leading-relaxed" style={{ color: '#3A3A52' }}>
-              Double-click a file in the explorer to open it
-            </p>
-          </div>
-        )}
+      {/* Monaco Editor — Phase 5 */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <MonacoEditor />
       </div>
     </div>
   );

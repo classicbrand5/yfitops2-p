@@ -16,4 +16,19 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Monaco Editor requires its workers to be served as separate chunks.
+  // We point the MonacoEnvironment to Vite's ?worker URL pattern.
+  optimizeDeps: {
+    include: ['monaco-editor'],
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split Monaco into a separate chunk to keep main bundle small
+        manualChunks: {
+          'monaco-editor': ['monaco-editor'],
+        },
+      },
+    },
+  },
 });
