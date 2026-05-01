@@ -3,26 +3,109 @@
 // Receives chat messages, calls OnSpace AI, returns structured JSON.
 // ─────────────────────────────────────────────────────────────
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { corsHeaders } from '../_shared/cors.ts';
 
-// ── System prompt ─────────────────────────────────────────
-const SYSTEM_PROMPT = `You are YFitOps, an autonomous engineering AI agent with world-class software engineering expertise. You help developers write code, manage repositories, run terminal commands, and ship faster.
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req: Request) => {
+  // Handle CORS preflight — MUST be first
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    // ── Extract JWT from Authorization header ─────────────
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Missing token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Create client with user JWT ───────────────────────
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    );
+
+    // ── Verify the token (throws if invalid/expired) ──────
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    if (authError || !user) {
+      console.error('[agent-inference] Auth error:', authError?.message);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[agent-inference] Authenticated user:', user.id);
+
+    // ── Parse request body ────────────────────────────────
+    let body: {
+      messages?: Array<{ role: string; content: string }>;
+      context?: unknown;
+      expertMode?: boolean;
+      conversationId?: string;
+    };
+
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { messages, context, expertMode, conversationId } = body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return new Response(JSON.stringify({ error: 'messages must be a non-empty array' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── AI provider config ────────────────────────────────
+    const apiKey = Deno.env.get('ONSPACE_AI_API_KEY');
+    const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
+
+    if (!apiKey || !baseUrl) {
+      return new Response(
+        JSON.stringify({ error: 'AI provider not configured — check ONSPACE_AI_API_KEY and ONSPACE_AI_BASE_URL' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // ── Build system prompt ───────────────────────────────
+    const expertNote = expertMode
+      ? '\n\nEXPERT MODE: Populate "steps.draft" with initial analysis and "steps.critique" with self-critique before giving the final answer.'
+      : '';
+
+    const systemPrompt = `You are YFitOps Agent, an autonomous AI coding assistant embedded inside a browser-based IDE.
+You have full access to the user's workspace context and can read/write files, run commands, and open PRs.
 
 ## Response Format
-
 You MUST ALWAYS respond with valid JSON matching this exact schema:
 {
   "final": "<markdown-formatted answer>",
   "actions": [
     {
-      "type": "write_file | edit_file | delete_file | read_file | run_command | create_dir",
+      "type": "write_file | edit_file | delete_file | read_file | run_command | create_dir | search_files | open_pr",
       "path": "<file path if applicable>",
       "content": "<full file content for write_file>",
       "diff": "<unified diff for edit_file>",
       "command": "<shell command for run_command>",
-      "args": ["<arg1>", "<arg2>"],
-      "explanation": "<plain English explanation of what this action does>",
+      "args": ["<arg1>"],
+      "explanation": "<plain English explanation>",
       "requiresConfirmation": false
     }
   ],
@@ -35,185 +118,111 @@ You MUST ALWAYS respond with valid JSON matching this exact schema:
 ## Rules
 - Set requiresConfirmation to TRUE for: file deletions, force pushes, deployments, destructive DB operations
 - Set requiresConfirmation to FALSE for: reads, safe writes, npm install, test runs
-- In expert mode, populate the "steps" field with your draft and critique
 - Always write TypeScript with strict types unless told otherwise
-- Always format code with 2-space indentation
 - NEVER return plain text — only valid JSON
-- If you cannot complete a task, still return JSON with "final" explaining why and empty "actions"
-- For edit_file, use standard unified diff format (--- +++ @@ lines)`;
+- If you cannot complete a task, still return JSON with "final" explaining why and empty "actions"${expertNote}
 
-// ── Schema validator ──────────────────────────────────────
-function validateAgentResponse(raw: unknown): void {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('Agent response is not an object');
-  }
-  const r = raw as Record<string, unknown>;
-  if (typeof r.final !== 'string') {
-    throw new Error('Agent response missing "final" string');
-  }
-  if (r.actions !== undefined && !Array.isArray(r.actions)) {
-    throw new Error('"actions" must be an array');
-  }
-}
+## Current Workspace Context
+${JSON.stringify(context ?? {}, null, 2)}`;
 
-// ── Error response helper ─────────────────────────────────
-function jsonError(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+    // ── Call OnSpace AI ───────────────────────────────────
+    let aiResponse: Response;
+    try {
+      aiResponse = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.map((m) => ({
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: m.content,
+            })),
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.3,
+          max_tokens: 8192,
+        }),
+      });
+    } catch (fetchErr) {
+      console.error('[agent-inference] AI fetch failed:', fetchErr);
+      return new Response(
+        JSON.stringify({ error: `AI provider unreachable: ${fetchErr}` }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
-// ── Main handler ──────────────────────────────────────────
-Deno.serve(async (req: Request) => {
-  // Handle CORS preflight — MUST be first
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+    if (!aiResponse.ok) {
+      const errText = await aiResponse.text();
+      console.error('[agent-inference] AI error response:', errText);
+      return new Response(
+        JSON.stringify({ error: `AI provider error: ${errText}` }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
-  // ── Auth verification ──────────────────────────────────
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) {
-    return jsonError('Missing Authorization header', 401);
-  }
+    const aiData = await aiResponse.json();
+    const rawContent = aiData?.choices?.[0]?.message?.content;
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-    { global: { headers: { Authorization: authHeader } } }
-  );
+    if (!rawContent) {
+      return new Response(
+        JSON.stringify({ error: 'Empty AI response' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    // ── Parse response ────────────────────────────────────
+    let parsed: { final: string; actions?: unknown[]; steps?: unknown };
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      // AI returned plain text — wrap it
+      parsed = { final: rawContent, actions: [] };
+    }
 
-  if (userError || !user) {
-    return jsonError('Unauthorized', 401);
-  }
+    // Ensure required fields
+    if (typeof parsed.final !== 'string') {
+      parsed.final = rawContent;
+    }
+    if (!Array.isArray(parsed.actions)) {
+      parsed.actions = [];
+    }
 
-  // ── Parse request body ────────────────────────────────
-  let body: {
-    messages?: Array<{ role: string; content: string }>;
-    conversationId?: string;
-    expertMode?: boolean;
-    workspaceContext?: unknown;
-  };
+    // ── Analytics log (non-fatal) ─────────────────────────
+    try {
+      const supabaseAdmin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      );
+      await supabaseAdmin.from('events').insert({
+        user_id: user.id,
+        event_type: 'ai_request',
+        payload: {
+          conversationId,
+          messageCount: messages.length,
+          expertMode: expertMode ?? false,
+          actionCount: parsed.actions?.length ?? 0,
+        },
+      });
+    } catch (logErr) {
+      console.error('[agent-inference] Analytics log failed (non-fatal):', logErr);
+    }
 
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError('Invalid JSON body', 400);
-  }
-
-  const { messages, conversationId, expertMode, workspaceContext } = body;
-
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return jsonError('messages must be a non-empty array', 400);
-  }
-
-  // ── AI provider config ────────────────────────────────
-  const apiKey = Deno.env.get('ONSPACE_AI_API_KEY');
-  const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
-
-  if (!apiKey || !baseUrl) {
-    return jsonError('AI provider not configured — check ONSPACE_AI_API_KEY and ONSPACE_AI_BASE_URL', 500);
-  }
-
-  // ── Build full system prompt with context ─────────────
-  const contextBlock = workspaceContext
-    ? `\n\n## Current Workspace Context\n${JSON.stringify(workspaceContext, null, 2)}`
-    : '';
-
-  const expertModeNote = expertMode
-    ? '\n\nEXPERT MODE ACTIVE: Populate the "steps.draft" field with your initial analysis, then "steps.critique" with your self-critique, then provide the refined "final" and "actions".'
-    : '';
-
-  const fullSystemPrompt = SYSTEM_PROMPT + contextBlock + expertModeNote;
-
-  // ── Assemble AI messages ──────────────────────────────
-  const aiMessages = [
-    { role: 'system', content: fullSystemPrompt },
-    ...messages.map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
-  ];
-
-  // ── Call OnSpace AI ───────────────────────────────────
-  let aiResponse: Response;
-  try {
-    aiResponse = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: aiMessages,
-        stream: false,
-        temperature: 0.3,
-        max_tokens: 8192,
-        response_format: { type: 'json_object' },
-      }),
+    // ── Return response ───────────────────────────────────
+    return new Response(JSON.stringify(parsed), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (err) {
-    console.error('[agent-inference] AI fetch failed:', err);
-    return jsonError(`AI provider unreachable: ${err}`, 502);
-  }
 
-  if (!aiResponse.ok) {
-    const errText = await aiResponse.text();
-    console.error('[agent-inference] AI error response:', errText);
-    return jsonError(`AI provider error: ${errText}`, 502);
-  }
-
-  const aiData = await aiResponse.json();
-  const rawContent = aiData?.choices?.[0]?.message?.content;
-
-  if (!rawContent) {
-    return jsonError('Empty AI response — no content in choices[0].message.content', 502);
-  }
-
-  // ── Parse and validate the structured JSON response ───
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    console.error('[agent-inference] Non-JSON AI response:', rawContent.slice(0, 500));
-    return jsonError(`AI returned non-JSON: ${rawContent.slice(0, 200)}`, 502);
-  }
-
-  try {
-    validateAgentResponse(parsed);
-  } catch (err) {
-    console.error('[agent-inference] Schema validation failed:', err);
-    return jsonError(`Invalid AI response schema: ${err}`, 502);
-  }
-
-  // ── Log analytics event ───────────────────────────────
-  try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-
-    await supabaseAdmin.from('events').insert({
-      user_id: user.id,
-      event_type: 'ai_request',
-      payload: {
-        conversationId,
-        messageCount: messages.length,
-        expertMode: expertMode ?? false,
-        actionCount: (parsed as { actions?: unknown[] }).actions?.length ?? 0,
-      },
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[agent-inference] Unhandled error:', message);
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (err) {
-    // Non-fatal — don't fail the request if analytics logging fails
-    console.error('[agent-inference] Analytics log failed:', err);
   }
-
-  // ── Return validated response ─────────────────────────
-  return new Response(JSON.stringify(parsed), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
 });

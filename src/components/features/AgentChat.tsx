@@ -34,6 +34,7 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { AgentAction, AgentMessage, AgentResponse } from '@/types/agent.types';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
@@ -319,6 +320,14 @@ export function AgentChat() {
 
     sendInFlightRef.current = true;
 
+    // 0. Guard: must have an active session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error('You must be logged in to use the agent');
+      sendInFlightRef.current = false;
+      return;
+    }
+
     // 1. Add user message
     const userMsg: AgentMessage = {
       id: crypto.randomUUID(),
@@ -359,7 +368,7 @@ export function AgentChat() {
       const { data, error } = await supabase.functions.invoke('agent-inference', {
         body: {
           messages: history,
-          workspaceContext: buildContext(),
+          context: buildContext(),
           expertMode,
         },
       });
