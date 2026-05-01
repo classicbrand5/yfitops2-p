@@ -2,13 +2,13 @@ name: Deploy to Cloudflare Pages
 
 on:
   push:
-    branches: [main]   # change to 'master' if your default branch is 'master'
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed to push the lockfile update back to the repo
+      contents: write   # needed for auto-commit
 
     steps:
       - name: Checkout repository
@@ -21,19 +21,18 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies (allow lockfile update)
-        run: npm install
+        run: npm install   # will regenerate lockfile if needed
 
-      - name: Commit updated lockfile if changed
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add package-lock.json
-          if git diff --staged --quiet; then
-            echo "No lockfile changes, skipping commit."
-          else
-            git commit -m "Update package-lock.json [skip ci]"
-            git push
-          fi
+      - name: Commit updated lockfile
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update package-lock.json [skip ci]"
+          file_pattern: "package-lock.json"
+          commit_options: "--no-verify"
+          skip_fetch: false
+          skip_dirty_check: false
+          push_options: ""
+        # This action will only commit and push if the file has changed
 
       - name: Build the project
         run: npm run build
