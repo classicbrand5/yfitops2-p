@@ -59,6 +59,7 @@
     "embla-carousel-react": "^8.3.0",
     "framer-motion": "^12.23.24",
     "hls.js": "^1.6.13",
+    "immer": "^10.1.1",
     "input-otp": "^1.2.4",
     "jspdf": "^3.0.3",
     "leaflet": "^1.9.4",
