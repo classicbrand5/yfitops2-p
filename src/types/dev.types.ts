@@ -92,7 +92,7 @@ export type LayoutMode =
   | 'split-vertical'
   | 'terminal-only'
   | 'chat-only'
-  | 'ide-full';
+  | 'full-ide';
 
 export type PanelId = 'chat' | 'editor' | 'terminal' | 'explorer' | 'builds' | 'analytics';
 

@@ -96,6 +96,23 @@ export function useOtpCooldown(email: string) {
     setSecondsLeft(COOLDOWN_SECONDS);
   }, [email]);
 
+  /**
+   * forceCooldown — called when the backend returns a 429 with a
+   * retryAfterSeconds value. Overrides the default duration so the
+   * client-side gate aligns with the server's actual throttle window.
+   */
+  const forceCooldown = useCallback(
+    (seconds: number) => {
+      // Store a synthetic sentAt so refresh-bypass is still prevented.
+      // We subtract (COOLDOWN_SECONDS - seconds) from now so that when
+      // computeSecondsLeft reads it, it computes exactly `seconds` left.
+      const syntheticSentAt = Date.now() - (COOLDOWN_SECONDS - Math.min(seconds, COOLDOWN_SECONDS)) * 1000;
+      setStoredSentAt(email, syntheticSentAt);
+      setSecondsLeft(Math.min(seconds, COOLDOWN_SECONDS));
+    },
+    [email]
+  );
+
   const resetCooldown = useCallback(() => {
     clearStoredSentAt(email);
     setSecondsLeft(0);
@@ -109,6 +126,7 @@ export function useOtpCooldown(email: string) {
     canSend: secondsLeft === 0,
     secondsLeft,
     startCooldown,
+    forceCooldown,
     resetCooldown,
   };
 }

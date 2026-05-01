@@ -139,7 +139,7 @@ export default function Auth() {
   const [showSuConfirm, setShowSuConfirm] = useState(false);
 
   // OTP cooldown — keyed to email so changes reset the timer
-  const { canSend, secondsLeft, startCooldown, resetCooldown } = useOtpCooldown(suEmail);
+  const { canSend, secondsLeft, startCooldown, forceCooldown, resetCooldown } = useOtpCooldown(suEmail);
 
   // ── Tab switch — clean all state ──────────────────────
   const switchTab = useCallback((t: Tab) => {
@@ -155,20 +155,33 @@ export default function Auth() {
   }, []);
 
   // ── Handle auth errors uniformly ──────────────────────
+  // IMPORTANT: when a 429 is received, we call forceCooldown() to
+  // enforce the server-side wait at the client layer so the resend
+  // button cannot be clicked again immediately. This is the critical
+  // fix — classifyAuthError already detects 429 but previously nothing
+  // updated the cooldown state on that path.
   const handleAuthError = useCallback(
     (err: unknown, action: string) => {
       const classified = classifyAuthError(err);
-      console.error(`[Auth] ${action} error:`, err);
+      console.error(`[Auth] ${action} error:`, classified.type, err);
 
       if (classified.type === 'rate_limit') {
-        setBanner({ kind: 'warning', message: classified.message });
-        toast.warning(classified.message);
+        // ✅ Enforce cooldown on 429 — use backend retryAfterSeconds if
+        // provided, otherwise fall back to the default 60s cooldown.
+        const retryAfter = classified.retryAfterSeconds ?? 60;
+        forceCooldown(retryAfter);
+        setBanner({
+          kind: 'warning',
+          message: `Too many requests. Please wait ${retryAfter}s before trying again.`,
+        });
+        toast.warning(`Rate limited — wait ${retryAfter}s before sending another code.`);
       } else {
         setBanner({ kind: 'error', message: classified.message });
         toast.error(classified.message);
       }
     },
-    []
+    // forceCooldown is stable (useCallback in useOtpCooldown)
+    [forceCooldown]
   );
 
   // ════════════════════════════════════════════════════

@@ -4,9 +4,14 @@ import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import StatusBar from './StatusBar';
 import { useAppStore } from '@/store/useAppStore';
+import { CommandPalette } from '@/components/ui/CommandPalette';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 export default function AppShell() {
   const { theme } = useAppStore();
+
+  // Register global keyboard shortcuts (Cmd+K, Alt+H, etc.)
+  useKeyboardShortcuts();
 
   // Apply theme class to document root
   useEffect(() => {
@@ -67,6 +72,9 @@ export default function AppShell() {
         {/* Status bar */}
         <StatusBar />
       </div>
+
+      {/* Command Palette — portal-like overlay, renders nothing when closed */}
+      <CommandPalette />
     </div>
   );
 }

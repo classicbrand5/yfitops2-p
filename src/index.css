@@ -276,6 +276,10 @@
    ═══════════════════════════════════════════════════════════════ */
 @layer utilities {
   /* Keyframes */
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.95) translateY(-8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
   @keyframes fade-up {
     from { opacity: 0; transform: translateY(12px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -346,6 +350,7 @@
   }
 
   /* Animation utility classes */
+  .animate-scale-in   { animation: scale-in 180ms var(--ease-out-back) both; }
   .animate-fade-up     { animation: fade-up 300ms var(--ease-out-back) both; }
   .animate-fade-in     { animation: fade-in 200ms var(--ease-smooth) both; }
   .animate-slide-right { animation: slide-in-right 250ms var(--ease-out-back) both; }
@@ -363,6 +368,25 @@
   .animate-marquee     { animation: marquee 30s linear infinite; }
   .animate-marquee-rev { animation: marquee-reverse 35s linear infinite; }
   .animate-cursor      { animation: terminal-cursor 1s step-end infinite; }
+
+  /* cmdk — command palette group headings and item hover/selected states */
+  [cmdk-group-heading] {
+    padding: 4px 16px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #3A3A52;
+    font-family: var(--font-body);
+  }
+  .cmd-item[aria-selected='true'],
+  .cmd-item:focus {
+    background: rgba(0,245,160,0.06) !important;
+    outline: none;
+  }
+  .cmd-item:hover {
+    background: rgba(255,255,255,0.04);
+  }
 
   /* Stagger delays */
   .delay-75  { animation-delay: 75ms; }
