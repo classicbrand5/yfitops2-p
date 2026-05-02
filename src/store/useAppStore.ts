@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { generateId } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 import type {
   FileNode,
   EditorTab,
@@ -489,21 +490,38 @@ export const useAppStore = create<AppState>()(
             state.conversations.unshift(conv);
           }),
 
-        addMessage: (convId, msg) =>
+        addMessage: (convId, msg) => {
           set((state) => {
             if (!state.messages[convId]) {
               state.messages[convId] = [];
             }
             state.messages[convId].push(msg);
-            // Update conversation metadata
             const conv = state.conversations.find((c) => c.id === convId);
             if (conv) {
               conv.messageCount += 1;
               conv.updatedAt = Date.now();
             }
-          }),
+          });
 
-        updateMessage: (convId, msgId, patch) =>
+          // Persist to Supabase (best-effort, non-blocking)
+          void (async () => {
+            try {
+              const { error } = await supabase.from('ai_messages').insert({
+                id: msg.id,
+                conversation_id: convId,
+                role: msg.role,
+                content: msg.content,
+                actions: msg.actions ?? [],
+                metadata: { timestamp: msg.timestamp },
+              });
+              if (error) console.error('[Store] addMessage persist failed:', error.message);
+            } catch (e) {
+              console.error('[Store] addMessage persist error:', e);
+            }
+          })();
+        },
+
+        updateMessage: (convId, msgId, patch) => {
           set((state) => {
             const msgs = state.messages[convId];
             if (!msgs) return;
@@ -511,7 +529,25 @@ export const useAppStore = create<AppState>()(
             if (idx >= 0) {
               Object.assign(msgs[idx], patch);
             }
-          }),
+          });
+
+          // Sync content + actions to Supabase (best-effort)
+          void (async () => {
+            try {
+              const updatePayload: Record<string, unknown> = {};
+              if (patch.content !== undefined) updatePayload.content = patch.content;
+              if (patch.actions  !== undefined) updatePayload.actions = patch.actions;
+              if (Object.keys(updatePayload).length === 0) return;
+              const { error } = await supabase
+                .from('ai_messages')
+                .update(updatePayload)
+                .eq('id', msgId);
+              if (error) console.error('[Store] updateMessage persist failed:', error.message);
+            } catch (e) {
+              console.error('[Store] updateMessage persist error:', e);
+            }
+          })();
+        },
 
         setIsThinking: (v) =>
           set((state) => {
@@ -560,9 +596,9 @@ export const useAppStore = create<AppState>()(
           }),
 
         createNewConversation: () => {
-          const id = generateId();
+          const localId = generateId();
           const conv: ConversationMeta = {
-            id,
+            id: localId,
             title: 'New Task',
             category: 'general',
             messageCount: 0,
@@ -571,10 +607,42 @@ export const useAppStore = create<AppState>()(
           };
           set((state) => {
             state.conversations.unshift(conv);
-            state.messages[id] = [];
-            state.activeConversationId = id;
+            state.messages[localId] = [];
+            state.activeConversationId = localId;
           });
-          return id;
+
+          // Persist to Supabase in the background (best-effort)
+          void (async () => {
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
+              const { data, error } = await supabase
+                .from('ai_conversations')
+                .insert({
+                  id: localId,
+                  user_id: user.id,
+                  title: 'New Task',
+                  category: 'general',
+                })
+                .select('id')
+                .single();
+              if (error) console.error('[Store] createNewConversation persist failed:', error.message);
+              else if (data?.id && data.id !== localId) {
+                // If server assigned a different ID (shouldn't happen with our uuid), remap
+                set((state) => {
+                  const idx = state.conversations.findIndex((c) => c.id === localId);
+                  if (idx >= 0) state.conversations[idx].id = data.id as string;
+                  if (state.activeConversationId === localId) state.activeConversationId = data.id as string;
+                  const msgs = state.messages[localId];
+                  if (msgs) { state.messages[data.id as string] = msgs; delete state.messages[localId]; }
+                });
+              }
+            } catch (e) {
+              console.error('[Store] createNewConversation persist error:', e);
+            }
+          })();
+
+          return localId;
         },
 
         // ── Notifications ─────────────────────────────

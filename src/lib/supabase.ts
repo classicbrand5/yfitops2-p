@@ -24,3 +24,32 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 export default supabase;
+
+// ─────────────────────────────────────────────────────────
+// withAuthRefresh — auto-retry on 401 / JWT-expired errors
+// Wraps any async fn, refreshes the session once, retries.
+// ─────────────────────────────────────────────────────────
+export async function withAuthRefresh<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e: unknown) {
+    const err = e as { message?: string; status?: number; response?: { status?: number } };
+    const msg = String(err?.message ?? e);
+    const status = err?.status ?? err?.response?.status;
+
+    const looksExpired =
+      status === 401 ||
+      msg.toLowerCase().includes('jwt') ||
+      msg.toLowerCase().includes('expired') ||
+      msg.toLowerCase().includes('unauthorized');
+
+    if (!looksExpired) throw e;
+
+    // Force session refresh
+    const { data } = await supabase.auth.refreshSession();
+    if (!data?.session) throw e; // give up if refresh fails
+
+    // Retry once with fresh token
+    return await fn();
+  }
+}

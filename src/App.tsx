@@ -9,6 +9,7 @@ import AppShell from '@/components/layout/AppShell';
 // Pages
 import Index from './pages/Index';
 import NotFound from './pages/NotFound';
+const GitHubCallback = lazy(() => import('./pages/GitHubCallback'));
 
 // Lazy-loaded pages
 const Landing     = lazy(() => import('./pages/Landing'));
@@ -106,6 +107,13 @@ const App = () => (
               </Suspense>
             } />
           </Route>
+
+          {/* GitHub OAuth callback — outside AppShell (no sidebar/topbar) */}
+          <Route path="/auth/github/callback" element={
+            <Suspense fallback={<PageFallback />}>
+              <GitHubCallback />
+            </Suspense>
+          } />
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

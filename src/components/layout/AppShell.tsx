@@ -6,12 +6,16 @@ import StatusBar from './StatusBar';
 import { useAppStore } from '@/store/useAppStore';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useConversationSync } from '@/hooks/useConversationSync';
 
 export default function AppShell() {
   const { theme } = useAppStore();
 
   // Register global keyboard shortcuts (Cmd+K, Alt+H, etc.)
   useKeyboardShortcuts();
+
+  // Sync conversations + messages from Supabase on auth ready
+  useConversationSync();
 
   // Apply theme class to document root
   useEffect(() => {

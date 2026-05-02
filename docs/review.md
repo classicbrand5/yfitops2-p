@@ -224,7 +224,32 @@ This document tracks everything that was intentionally deferred, skipped, partia
 
 ---
 
-## Phase 8 — Polish & Completion
+## Phase 9 — GitHub Integration & Conversation Persistence
+
+### ✅ Completed
+- `withAuthRefresh<T>` utility added to `src/lib/supabase.ts` — auto-retries on 401/JWT-expired with one session refresh
+- `useConversationSync` hook — loads up to 50 conversations + messages for top-5 convos from Supabase on auth ready; merges into Zustand without overwriting in-progress chats
+- `createNewConversation` — now inserts into `ai_conversations` in background; falls back to local UUID on network error
+- `addMessage` — inserts into `ai_messages` in background (non-blocking)
+- `updateMessage` — patches `content` + `actions` in `ai_messages` in background
+- `GitHubRepoConnect` component — OAuth connect button + repository clone form using `git clone https://<token>@github.com/owner/repo.git` via WebContainer
+- `GitHubCallback` page (`/auth/github/callback`) — CSRF-safe code exchange via `github-oauth-token` edge function; stores token in `profiles.github_access_token`
+- `github-oauth-token` Supabase Edge Function — server-side token exchange (client secret never exposed to browser)
+- Dashboard — replaced mock stats with live `get_dashboard_stats()` + `get_ai_usage(30)` RPC data; recharts AreaChart for AI usage; GitHub connect card
+- Settings — full profile editor (full_name, github_username) + avatar upload to Supabase Storage bucket `avatars`; deferred sections (Security, Notifications, Appearance, Editor) shown as locked cards
+- AppShell wires `useConversationSync()`; App.tsx registers `/auth/github/callback` route
+
+### ⚠️ Deferred / Skipped
+- **Conversation delete from DB** — store `clearChat` / delete not wired to Supabase delete yet
+- **GitHub token encryption** — stored as plaintext; RLS protects it but Supabase Vault should be used in production
+- **Private repo multi-clone** — clones to `/repo-name`; multiple clones would conflict without a directory picker
+- **Real-time conversation sync** — messages written on creation but not subscribed via Supabase Realtime; multi-device requires page reload
+- **Offline message replay** — if Supabase is unreachable, local messages are not queued for later upload
+- **avatars bucket SQL** — must be run manually (see phase-9 docs for the CREATE POLICY statements)
+- **`VITE_GITHUB_CLIENT_ID` env var** — must be set in Cloudflare Pages environment variables and local `.env` by the user
+- **`github-oauth-token` edge function** — must be deployed manually via `supabase functions deploy github-oauth-token` + secrets set
+
+---
 
 ### ✅ Completed
 - `useKeyboardShortcuts` — added Cmd+B (sidebar toggle), Cmd+` (focus terminal), Cmd+Shift+E (focus explorer), Cmd+P (open palette), input-field guard
