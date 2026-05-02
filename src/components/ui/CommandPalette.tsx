@@ -1,17 +1,22 @@
 // ─────────────────────────────────────────────────────────
 // CommandPalette — Cmd+K / Ctrl+K global palette
 // Uses cmdk for fuzzy search over a typed command registry.
+// Phase 8: Added New File, New Folder commands + real FS ops.
 // ─────────────────────────────────────────────────────────
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
 import { useAppStore } from '@/store/useAppStore';
+import { buildFileTree } from '@/core/webcontainer/fs';
+import { toast } from 'sonner';
 import {
   LayoutDashboard, Zap, Terminal, Bot, BarChart2,
   Settings, CreditCard, FolderOpen, Code2, Sun, Moon,
   SplitSquareHorizontal, SplitSquareVertical, Maximize2, X,
+  FilePlus, FolderPlus,
 } from 'lucide-react';
+import type { FileNode } from '@/types/dev.types';
 
 // ── Command type ──────────────────────────────────────────
 interface PaletteCommand {
@@ -23,6 +28,11 @@ interface PaletteCommand {
   group: string;
   shortcut?: string[];
   action: () => void;
+}
+
+// ── WebContainer helper ───────────────────────────────────
+function getContainer() {
+  return (window as any).__yfitops_container ?? null;
 }
 
 // ═════════════════════════════════════════════════════════
@@ -41,6 +51,7 @@ export function CommandPalette() {
     openTabs,
     setActiveTab,
     createNewConversation,
+    setFileTree,
   } = useAppStore();
 
   // Focus input when opened
@@ -53,6 +64,47 @@ export function CommandPalette() {
 
   const close = useCallback(() => closeCommandPalette(), [closeCommandPalette]);
 
+  // ── File system actions ───────────────────────────────
+  const handleNewFile = useCallback(async () => {
+    close();
+    const wc = getContainer();
+    if (!wc) { toast.error('Workspace not ready'); return; }
+
+    const name = window.prompt('New file name:', 'untitled.ts');
+    if (!name?.trim()) return;
+
+    const path = `/${name.trim()}`;
+    try {
+      await wc.fs.writeFile(path, '');
+      const lang = path.split('.').pop() ?? 'plaintext';
+      useAppStore.getState().openFile(path, lang);
+      const tree = await buildFileTree(wc, '/');
+      setFileTree(tree as FileNode[]);
+      toast.success(`Created ${path}`);
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    }
+  }, [close, setFileTree]);
+
+  const handleNewFolder = useCallback(async () => {
+    close();
+    const wc = getContainer();
+    if (!wc) { toast.error('Workspace not ready'); return; }
+
+    const name = window.prompt('New folder name:', 'new-folder');
+    if (!name?.trim()) return;
+
+    const path = `/${name.trim()}`;
+    try {
+      await wc.fs.mkdir(path, { recursive: true });
+      const tree = await buildFileTree(wc, '/');
+      setFileTree(tree as FileNode[]);
+      toast.success(`Created folder ${path}`);
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    }
+  }, [close, setFileTree]);
+
   // ── Command registry ──────────────────────────────────
   const commands: PaletteCommand[] = [
     // Navigation
@@ -62,6 +114,10 @@ export function CommandPalette() {
     { id: 'nav-analytics', label: 'Analytics',        Icon: BarChart2,       iconColor: '#38BDF8', group: 'Navigation', action: () => { navigate('/analytics'); close(); } },
     { id: 'nav-settings',  label: 'Settings',         Icon: Settings,        iconColor: '#5C5C7A', group: 'Navigation', action: () => { navigate('/settings'); close(); } },
     { id: 'nav-billing',   label: 'Billing',          Icon: CreditCard,      iconColor: '#FF9F43', group: 'Navigation', action: () => { navigate('/billing'); close(); } },
+
+    // File
+    { id: 'file-new',    label: 'File: New File',   description: 'Create a new file in workspace root', Icon: FilePlus,   iconColor: '#00F5A0', group: 'File', action: handleNewFile },
+    { id: 'file-folder', label: 'File: New Folder', description: 'Create a new folder in workspace root', Icon: FolderPlus, iconColor: '#9B6EF5', group: 'File', action: handleNewFolder },
 
     // Layout
     { id: 'layout-h',    label: 'Layout: Split Horizontal', Icon: SplitSquareHorizontal, iconColor: '#00F5A0', group: 'Layout', shortcut: ['Alt', 'H'], action: () => { setLayoutMode('split-horizontal'); close(); } },

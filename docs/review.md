@@ -221,3 +221,21 @@ This document tracks everything that was intentionally deferred, skipped, partia
 | 13 | Settings page (profile, avatar upload, GitHub token) | Low |
 | 14 | Accessibility audit + WCAG AA compliance | Low |
 | 15 | Test suite (Vitest + Playwright) | Low |
+
+---
+
+## Phase 8 — Polish & Completion
+
+### ✅ Completed
+- `useKeyboardShortcuts` — added Cmd+B (sidebar toggle), Cmd+` (focus terminal), Cmd+Shift+E (focus explorer), Cmd+P (open palette), input-field guard
+- `CommandPalette` — wired real FS actions: "File: New File" and "File: New Folder" via `window.__yfitops_container`
+- `FileTree` context menu — right-click on any node: New File, New Folder, Rename (inline input), Delete (ConfirmModal)
+- `ContextMenu.tsx` — new portal-based glassmorphism context menu component (z-300)
+- `NotFound.tsx` — added "Go Back" and "Back to Dashboard" navigation links
+- Toast provider verified — already mounted in `App.tsx` via `<Sonner />`
+
+### ⚠️ Deferred / Skipped
+- **Directory rename with child copy** — rename only recreates the directory (children not migrated)
+- **True fuzzy file picker (Cmd+P)** — opens the command palette; a dedicated file picker UI is deferred
+- **Mobile context menu** — long-press support not implemented
+- **Format-on-save** — still not wired to Monaco's `formatDocument` action
