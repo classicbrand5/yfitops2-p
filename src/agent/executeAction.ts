@@ -25,6 +25,21 @@ import {
 } from '../core/webcontainer/fs';
 import { spawnProcess } from '../core/webcontainer/process';
 import type { AgentAction, ActionResult } from '../types/agent.types';
+import { useAppStore } from '../store/useAppStore';
+
+// ── Helper: record a file change in the store timeline ────
+function recordChange(
+  path: string,
+  action: 'created' | 'modified' | 'deleted',
+  source: 'agent' | 'user' = 'agent',
+  linesChanged?: number,
+) {
+  try {
+    useAppStore.getState().recordFileChange({ path, action, timestamp: Date.now(), source, linesChanged });
+  } catch {
+    // Store might not be initialized — silently skip
+  }
+}
 
 // ── Public API ────────────────────────────────────────────
 
@@ -98,6 +113,8 @@ async function execWriteFile(
   await ensureParentDir(container, action.path);
   await writeFile(container, action.path, action.content);
 
+  recordChange(action.path, 'created', 'agent', action.content.split('\n').length);
+
   return {
     success: true,
     output: `Created ${action.path}`,
@@ -135,6 +152,8 @@ async function execEditFile(
   await ensureParentDir(container, action.path);
   await writeFile(container, action.path, finalContent);
 
+  recordChange(action.path, 'modified', 'agent');
+
   return {
     success: true,
     output: `Edited ${action.path}`,
@@ -169,6 +188,7 @@ async function execDeleteFile(
     return { success: false, error: 'delete_file requires a path' };
   }
   await unlink(container, action.path);
+  recordChange(action.path, 'deleted', 'agent');
   return {
     success: true,
     output: `Deleted ${action.path}`,

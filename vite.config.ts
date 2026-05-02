@@ -7,6 +7,12 @@ export default defineConfig({
   server: {
     host: "::",
     port: 8080,
+    headers: {
+      // Required for WebContainer / SharedArrayBuffer
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
   },
   plugins: [
     react(),
@@ -16,19 +22,21 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Monaco Editor requires its workers to be served as separate chunks.
-  // We point the MonacoEnvironment to Vite's ?worker URL pattern.
   optimizeDeps: {
     include: ['monaco-editor'],
   },
   build: {
     rollupOptions: {
       output: {
-        // Split Monaco into a separate chunk to keep main bundle small
         manualChunks: {
-          'monaco-editor': ['monaco-editor'],
+          'monaco-editor':   ['monaco-editor'],
+          'vendor-ui':       ['react', 'react-dom', 'react-router-dom'],
+          'vendor-state':    ['zustand', '@tanstack/react-query'],
+          'vendor-charts':   ['recharts'],
+          'vendor-supabase': ['@supabase/supabase-js'],
         },
       },
     },
   },
 });
+

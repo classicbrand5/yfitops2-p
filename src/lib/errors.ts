@@ -1,14 +1,11 @@
 // ─────────────────────────────────────────────────────────
-// Error Class Hierarchy — YFitOps AI Agent
+// Typed Error Hierarchy — YFitOps AI Agent (Section A3)
 // ─────────────────────────────────────────────────────────
-
-import type { AgentAction } from '@/types/agent.types';
 
 export class YFitOpsError extends Error {
   constructor(
     message: string,
-    public code: string,
-    public details?: unknown
+    public readonly code: string,
   ) {
     super(message);
     this.name = 'YFitOpsError';
@@ -16,61 +13,63 @@ export class YFitOpsError extends Error {
 }
 
 export class WebContainerError extends YFitOpsError {
-  constructor(message: string, details?: unknown) {
-    super(message, 'WEBCONTAINER_ERROR', details);
+  constructor(message: string) {
+    super(message, 'WC_ERROR');
     this.name = 'WebContainerError';
   }
 }
 
 export class FilesystemError extends YFitOpsError {
-  constructor(message: string, path: string) {
-    super(message, 'FILESYSTEM_ERROR', { path });
+  constructor(
+    message: string,
+    public readonly path: string,
+  ) {
+    super(message, 'FS_ERROR');
     this.name = 'FilesystemError';
   }
 }
 
 export class AgentExecutionError extends YFitOpsError {
-  constructor(message: string, action: AgentAction) {
-    super(message, 'AGENT_EXECUTION_ERROR', { action });
+  constructor(
+    message: string,
+    public readonly actionType: string,
+  ) {
+    super(message, 'AGENT_EXEC_ERROR');
     this.name = 'AgentExecutionError';
   }
 }
 
 export class BackendUnavailableError extends YFitOpsError {
-  constructor(url: string) {
-    super(`Backend unavailable: ${url}`, 'BACKEND_UNAVAILABLE', { url });
+  constructor() {
+    super('Supabase not configured', 'BACKEND_UNAVAILABLE');
     this.name = 'BackendUnavailableError';
   }
 }
 
-export class AuthenticationError extends YFitOpsError {
-  constructor(message = 'Authentication required') {
+export class AuthError extends YFitOpsError {
+  constructor(message: string) {
     super(message, 'AUTH_ERROR');
-    this.name = 'AuthenticationError';
+    this.name = 'AuthError';
   }
 }
 
 export class DangerousCommandError extends YFitOpsError {
-  constructor(command: string) {
-    super(`Blocked dangerous command: ${command}`, 'DANGEROUS_COMMAND', { command });
+  constructor(cmd: string) {
+    super(`Blocked dangerous command: ${cmd}`, 'DANGEROUS_CMD');
     this.name = 'DangerousCommandError';
   }
 }
 
-export class AgentResponseError extends YFitOpsError {
-  constructor(message: string, rawResponse?: string) {
-    super(message, 'AGENT_RESPONSE_ERROR', { rawResponse });
-    this.name = 'AgentResponseError';
+export class RateLimitError extends YFitOpsError {
+  constructor(public readonly retryAfter?: number) {
+    super('Rate limit exceeded', 'RATE_LIMIT');
+    this.name = 'RateLimitError';
   }
 }
 
-/** Format any error to a user-readable string */
-export function formatError(err: unknown): string {
-  if (err instanceof YFitOpsError) {
-    return `[${err.code}] ${err.message}`;
+export class NetworkError extends YFitOpsError {
+  constructor(message: string) {
+    super(message, 'NETWORK_ERROR');
+    this.name = 'NetworkError';
   }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return String(err);
 }

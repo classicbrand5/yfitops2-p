@@ -27,6 +27,24 @@ import type {
   ConversationMeta,
 } from '@/types/agent.types';
 
+// ── Pinned context item ────────────────────────────────────
+export interface PinnedContextItem {
+  id: string;
+  type: 'snippet' | 'file' | 'note';
+  label: string;
+  content: string;
+}
+
+// ── File change event (session timeline) ─────────────────
+export interface FileChangeEvent {
+  id: string;
+  path: string;
+  action: 'created' | 'modified' | 'deleted';
+  timestamp: number;
+  source: 'user' | 'agent';
+  linesChanged?: number;
+}
+
 // ── Re-export types for convenience ──────────────────────
 export type {
   FileNode,
@@ -117,6 +135,17 @@ export interface AppState {
   registerProcess: (p: ProcessRecord) => void;
   updateProcessStatus: (id: string, status: ProcessStatus, exitCode?: number) => void;
   appendProcessOutput: (id: string, line: string) => void;
+
+  // ── Pinned context ─────────────────────────────────────
+  pinnedContext: PinnedContextItem[];
+  addPinnedContext: (item: Omit<PinnedContextItem, 'id'>) => void;
+  removePinnedContext: (id: string) => void;
+  clearPinnedContext: () => void;
+
+  // ── File change timeline ─────────────────────────────────
+  fileChanges: FileChangeEvent[];
+  recordFileChange: (event: Omit<FileChangeEvent, 'id'>) => void;
+  clearFileChanges: () => void;
 
   // ── Agent / Chat ─────────────────────────────────────
   conversations: ConversationMeta[];
@@ -459,6 +488,46 @@ export const useAppStore = create<AppState>()(
             }
           }),
 
+        // ── Pinned Context ───────────────────────────────
+        pinnedContext: [],
+
+        addPinnedContext: (item) =>
+          set((state) => {
+            if (state.pinnedContext.length >= 5) {
+              // FIFO eviction — remove oldest
+              state.pinnedContext.shift();
+            }
+            state.pinnedContext.push({ ...item, id: generateId() });
+          }),
+
+        removePinnedContext: (id) =>
+          set((state) => {
+            const idx = state.pinnedContext.findIndex((p) => p.id === id);
+            if (idx >= 0) state.pinnedContext.splice(idx, 1);
+          }),
+
+        clearPinnedContext: () =>
+          set((state) => {
+            state.pinnedContext = [];
+          }),
+
+        // ── File Change Timeline ─────────────────────────────
+        fileChanges: [],
+
+        recordFileChange: (event) =>
+          set((state) => {
+            state.fileChanges.unshift({ ...event, id: generateId() });
+            // Keep last 200 events
+            if (state.fileChanges.length > 200) {
+              state.fileChanges = state.fileChanges.slice(0, 200);
+            }
+          }),
+
+        clearFileChanges: () =>
+          set((state) => {
+            state.fileChanges = [];
+          }),
+
         // ── Agent ─────────────────────────────────────
         conversations: [],
         activeConversationId: null,
@@ -715,6 +784,7 @@ export const useAppStore = create<AppState>()(
           activeConversationId: state.activeConversationId,
           conversations: state.conversations,
           messages: state.messages,
+          pinnedContext: state.pinnedContext,
         }),
       }
     )

@@ -65,7 +65,7 @@ serve(async (req: Request) => {
       });
     }
 
-    const { messages, context, expertMode, conversationId } = body;
+    const { messages, context, expertMode, conversationId, slashCommand } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'messages must be a non-empty array' }), {
@@ -86,9 +86,20 @@ serve(async (req: Request) => {
     }
 
     // ── Build system prompt ───────────────────────────────
+    const isCodeReview = slashCommand === 'CODE_REVIEW_MODE';
     const expertNote = expertMode
       ? '\n\nEXPERT MODE: Populate "steps.draft" with initial analysis and "steps.critique" with self-critique before giving the final answer.'
       : '';
+
+    const codeReviewNote = isCodeReview ? `
+
+CODE REVIEW MODE: You are acting as a senior code reviewer. Structure your response as:
+1. "summary" — quality score 1-10 with brief rationale
+2. "issues" — array grouped by severity: Critical, Warning, Suggestion
+   Each issue: { severity, lineNumber, description, suggestion }
+   Each issue should have an edit_file action with requiresConfirmation: false for the suggested fix
+3. "praise" — what the code does well (brief, not sycophantic)
+Return this in the standard JSON format with the review as the "final" field.` : '';
 
     const systemPrompt = `You are YFitOps Agent, an autonomous AI coding assistant embedded inside a browser-based IDE.
 You have full access to the user's workspace context and can read/write files, run commands, and open PRs.
@@ -120,7 +131,9 @@ You MUST ALWAYS respond with valid JSON matching this exact schema:
 - Set requiresConfirmation to FALSE for: reads, safe writes, npm install, test runs
 - Always write TypeScript with strict types unless told otherwise
 - NEVER return plain text — only valid JSON
-- If you cannot complete a task, still return JSON with "final" explaining why and empty "actions"${expertNote}
+- If you cannot complete a task, still return JSON with "final" explaining why and empty "actions"
+- PINNED CONTEXT (high priority — always consider these):
+${JSON.stringify((context as Record<string, unknown>)?.pinnedContext ?? [], null, 2)}${expertNote}${codeReviewNote}
 
 ## Current Workspace Context
 ${JSON.stringify(context ?? {}, null, 2)}`;

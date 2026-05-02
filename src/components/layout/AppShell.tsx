@@ -7,15 +7,38 @@ import { useAppStore } from '@/store/useAppStore';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useConversationSync } from '@/hooks/useConversationSync';
+import { useRealtimeEvents } from '@/hooks/useRealtimeEvents';
+import { useRealtimeBuilds } from '@/hooks/useRealtimeBuilds';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
 
 export default function AppShell() {
-  const { theme } = useAppStore();
+  const { theme, user } = useAppStore();
 
   // Register global keyboard shortcuts (Cmd+K, Alt+H, etc.)
   useKeyboardShortcuts();
 
   // Sync conversations + messages from Supabase on auth ready
   useConversationSync();
+
+  // Fetch connected repo IDs for Realtime builds subscription
+  const { data: repoIds = [] } = useQuery({
+    queryKey: ['connected-repo-ids', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data } = await supabase
+        .from('connected_repos')
+        .select('id')
+        .eq('user_id', user.id);
+      return (data ?? []).map((r: { id: string }) => r.id);
+    },
+    enabled: !!user,
+    staleTime: 120_000,
+  });
+
+  // Wire Supabase Realtime subscriptions (Section A4)
+  useRealtimeEvents(user?.id);
+  useRealtimeBuilds(repoIds);
 
   // Apply theme class to document root
   useEffect(() => {
