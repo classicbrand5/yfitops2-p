@@ -5,9 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Generate a unique ID */
+/** Generate a unique ID — always RFC 4122 UUID so Supabase uuid columns accept it */
 export function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 /** Detect programming language from file extension */

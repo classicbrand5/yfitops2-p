@@ -429,7 +429,27 @@ export function AgentChat() {
 
     sendInFlightRef.current = true;
 
-    const { data: { session } } = await supabase.auth.getSession();
+    // Bug 4 fix — get session, refresh if expired or about to expire (< 60s)
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr || !refreshed.session) {
+        toast.error('Session expired — please sign in again');
+        sendInFlightRef.current = false;
+        return;
+      }
+      session = refreshed.session;
+    } else {
+      // Proactively refresh if token expires within 60 seconds
+      const expiresAt = session.expires_at ?? 0;
+      const nowSecs = Math.floor(Date.now() / 1000);
+      if (expiresAt - nowSecs < 60) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        if (refreshed.session) session = refreshed.session;
+      }
+    }
+
     if (!session) {
       toast.error('You must be logged in to use the agent');
       sendInFlightRef.current = false;
@@ -475,6 +495,10 @@ export function AgentChat() {
           expertMode,
           slashCommand: slashMode,
         },
+        headers: {
+          // Explicitly pass fresh token so edge function always receives a valid JWT
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
       if (error) {
@@ -484,6 +508,16 @@ export function AgentChat() {
             const statusCode = error.context?.status ?? 500;
             const textContent = await error.context?.text();
             errorMessage = `[${statusCode}] ${textContent || error.message}`;
+            // Handle 401 specifically — session is invalid, force re-auth
+            if (statusCode === 401) {
+              toast.error('Authentication failed', {
+                description: 'Please sign out and sign in again.',
+                action: { label: 'Sign Out', onClick: () => void supabase.auth.signOut() },
+              });
+              sendInFlightRef.current = false;
+              setIsThinking(false);
+              return;
+            }
           } catch { /* ignore */ }
         }
         throw new Error(errorMessage);

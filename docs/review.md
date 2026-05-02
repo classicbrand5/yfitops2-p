@@ -251,8 +251,23 @@ This document tracks everything that was intentionally deferred, skipped, partia
 
 ---
 
-### ✅ Completed
-- `useKeyboardShortcuts` — added Cmd+B (sidebar toggle), Cmd+` (focus terminal), Cmd+Shift+E (focus explorer), Cmd+P (open palette), input-field guard
+## Bug Fixes — Agent Non-Functional (Post Phase 10)
+
+### ✅ Fixed
+- **Bug 1 — Invalid UUID format (Supabase 400 errors):** `generateId()` in `src/lib/utils.ts` was producing `"${Date.now()}-${randomString}"` (e.g. `"1777669995522-yjikvi3"`) which PostgreSQL's `uuid` column type rejects. Fixed by replacing the body with `crypto.randomUUID()` — every entity ID (messages, conversations, tabs, terminal sessions, notifications) now produces proper RFC 4122 UUIDs. All `ai_messages` and `ai_conversations` inserts now succeed with `[HTTP/2 201]`.
+- **Bug 2 — Wrong AI model ID (502 errors):** Edge function was sending `google/gemini-2.5-flash-preview`. Already corrected to `google/gemini-2.5-flash` in `supabase/functions/agent-inference/index.ts` during Phase 10. Verified no `-preview` suffix remains.
+- **Bug 3 — transcribe-audio 500 / OPENAI_API_KEY missing:** `useVoiceInput.ts` now detects when the edge function returns an `OPENAI_API_KEY not configured` error and shows a friendly `toast.info()` directing the user to add the secret in Supabase → Project Settings → Edge Functions, instead of a generic error toast. The edge function itself already returns a clear 500 with an actionable message.
+- **Bug 4 — 401 Unauthorized on agent calls:** `AgentChat.tsx` `handleSend` now:
+  1. Gets the current session via `supabase.auth.getSession()`
+  2. If missing/expired, calls `supabase.auth.refreshSession()` automatically
+  3. Proactively refreshes if the token expires within 60 seconds
+  4. Passes `Authorization: Bearer <fresh_access_token>` explicitly in the `supabase.functions.invoke` headers so the edge function always receives a valid JWT
+  5. On a 401 response, shows a toast with a "Sign Out" action button rather than a generic error
+
+### ⚠️ Still Pending
+- **OPENAI_API_KEY secret** — must be added manually in Supabase dashboard for voice input to function
+- **Conversation delete from DB** — `clearChat` store action not wired to Supabase delete
+- **Token encryption** — `github_access_token` stored as plaintext (RLS protects it; Vault is future work)
 - `CommandPalette` — wired real FS actions: "File: New File" and "File: New Folder" via `window.__yfitops_container`
 - `FileTree` context menu — right-click on any node: New File, New Folder, Rename (inline input), Delete (ConfirmModal)
 - `ContextMenu.tsx` — new portal-based glassmorphism context menu component (z-300)

@@ -23,6 +23,10 @@ export function useVoiceInput({ onTranscript }: UseVoiceInputOptions) {
   const startRecording = useCallback(async () => {
     if (isRecording) return;
 
+    // Graceful fallback — voice input requires OPENAI_API_KEY secret in Supabase
+    // The edge function returns 500 with a clear error if the key isn't set.
+    // We still attempt the call but surface a friendly message on failure.
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -56,9 +60,14 @@ export function useVoiceInput({ onTranscript }: UseVoiceInputOptions) {
           );
 
           if (error || !data?.text) {
-            toast.error('Transcription failed', {
-              description: error?.message ?? 'No text returned',
-            });
+            const errMsg = error?.message ?? 'No text returned';
+            if (errMsg.includes('OPENAI_API_KEY') || errMsg.includes('not configured')) {
+              toast.info('Voice input unavailable', {
+                description: 'Add the OPENAI_API_KEY secret in Supabase → Project Settings → Edge Functions to enable voice input.',
+              });
+            } else {
+              toast.error('Transcription failed', { description: errMsg });
+            }
             return;
           }
 
