@@ -240,14 +240,14 @@ Single Zustand store with `subscribeWithSelector` + `persist` (localStorage) + `
 The model selector in AgentChat lets users switch between any of these providers at runtime.
 The selected model ID is sent to `agent-inference` which routes to the correct provider.
 
-| Provider | Model IDs | Speed | Free Tier | Secret | Status |
-|---|---|---|---|---|---|
-| OnSpace AI | `google/gemini-2.5-flash` | Fast | ✅ Default | `ONSPACE_AI_API_KEY` | ✅ Live |
-| Google AI Studio | `gemini-2.5-flash-preview-05-20`, `gemini-2.0-flash` | Fast | 15 RPM / 1500 req/day | `GOOGLE_AI_API_KEY` | ✅ Live |
-| Groq Cloud | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768` | 🔥 Blazing (600+ tok/s) | Generous | `GROQ_API_KEY` | ✅ Live |
-| OpenRouter | `deepseek/deepseek-r1:free`, `google/gemma-3-27b-it:free` | Normal | 200+ free models | `OPENROUTER_API_KEY` | ✅ Live |
-| Cerebras | `cerebras/llama-3.3-70b` | 🔥 Ultra (2000+ tok/s) | Generous | `CEREBRAS_API_KEY` | ✅ Live |
-| Together AI | `Qwen/Qwen2.5-Coder-32B-Instruct` | Normal | $1 free credit | `TOGETHER_AI_API_KEY` | ✅ Live |
+| Provider | Model IDs | Speed | Free Tier | Secret Required |
+|---|---|---|---|---|
+| OnSpace AI | `google/gemini-2.5-flash` | Fast | ✅ Default | `ONSPACE_AI_API_KEY` |
+| Google AI Studio | `gemini-2.5-flash-preview-05-20`, `gemini-2.0-flash` | Fast | 15 RPM / 1500 req/day | `GOOGLE_AI_API_KEY` |
+| Groq Cloud | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768` | 🔥 Blazing (600+ tok/s) | Generous | `GROQ_API_KEY` |
+| OpenRouter | `deepseek/deepseek-r1:free`, `google/gemma-3-27b-it:free` | Normal | 200+ free models | `OPENROUTER_API_KEY` |
+| Cerebras | `llama-3.3-70b` (prefix: `cerebras/`) | 🔥 Ultra (2000+ tok/s) | Generous | `CEREBRAS_API_KEY` |
+| Together AI | `Qwen/Qwen2.5-Coder-32B-Instruct` | Normal | $1 free credit | `TOGETHER_AI_API_KEY` |
 
 ### Provider Routing Logic (agent-inference edge function)
 

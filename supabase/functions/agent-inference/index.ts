@@ -108,33 +108,32 @@ function resolveProvider(modelId: string): ProviderConfig | null {
     };
   }
 
+  // ── Groq Cloud ──────────────────────────────────────
+  // Models: llama-3.3-70b-versatile, mixtral-8x7b-32768, llama-3.*
+  if (
+    modelId.startsWith('llama-') ||
+    modelId.startsWith('mixtral-') ||
+    modelId.startsWith('whisper-') ||
+    modelId === 'llama-3.3-70b' // Cerebras also uses this, but Cerebras check comes first
+  ) {
+    // Cerebras models use llama-3.3-70b (no suffix)
+    const groqKey = Deno.env.get('GROQ_API_KEY');
+    if (!groqKey) return null;
+    return {
+      apiKey: groqKey,
+      baseUrl: 'https://api.groq.com/openai/v1',
+      supportsJsonMode: true,
+    };
+  }
+
   // ── Cerebras ────────────────────────────────────────
-  // IMPORTANT: Must come BEFORE the Groq llama-* check.
-  // Model IDs with 'cerebras/' prefix route here.
-  // normalizeModelId() strips 'cerebras/' before the API call.
-  // e.g. 'cerebras/llama-3.3-70b' → API receives 'llama-3.3-70b'
+  // Explicitly prefix with 'cerebras/' to disambiguate from Groq's llama models
   if (modelId.startsWith('cerebras/')) {
     const key = Deno.env.get('CEREBRAS_API_KEY');
     if (!key) return null;
     return {
       apiKey: key,
       baseUrl: 'https://api.cerebras.ai/v1',
-      supportsJsonMode: true,
-    };
-  }
-
-  // ── Groq Cloud ──────────────────────────────────────
-  // Models: llama-3.3-70b-versatile, mixtral-8x7b-32768, llama-3.*
-  // NOTE: plain 'llama-3.3-70b' (without cerebras/) also routes to Groq.
-  if (
-    modelId.startsWith('llama-') ||
-    modelId.startsWith('mixtral-')
-  ) {
-    const groqKey = Deno.env.get('GROQ_API_KEY');
-    if (!groqKey) return null;
-    return {
-      apiKey: groqKey,
-      baseUrl: 'https://api.groq.com/openai/v1',
       supportsJsonMode: true,
     };
   }
