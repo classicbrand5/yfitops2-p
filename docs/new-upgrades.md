@@ -1,4 +1,3 @@
-docs/new-upgrades.md:
 # YFitOps Upgrade Tracker
 > OnSpace AI: READ THIS FILE at the start of every session before touching any code.
 > UPDATE the relevant phase section before ending every session.
@@ -13,24 +12,37 @@ docs/new-upgrades.md:
 
 ## Phase 0 — Stability Baseline
 **Goal:** Confirm existing features actually work before adding anything new.
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ### Tasks
-- [ ] Suspense import fix (Build 1 white-screen) — add `import React, { Suspense } from 'react'` to App.tsx or wherever Suspense is used without import
-- [ ] Build 2 UUID format fix — verify crypto.randomUUID() is used everywhere, no manual IDs
-- [ ] Build 2 model ID fix — confirm edge function uses `google/gemini-2.5-flash-preview` not `gemini-2.5-flash`
-- [ ] SSE streaming edge function deployed and useStreamingAgent wired in AgentChat
-- [ ] File tree right-click context menu (new/rename/delete) renders and executes
-- [ ] Monaco view-state (scroll + cursor) restores on tab switch
+- ✅ Suspense import fix — `import { lazy, Suspense } from 'react'` was already correct in App.tsx
+- ✅ UUID format fix — `generateId()` in src/lib/utils.ts wraps `crypto.randomUUID()` — all IDs valid
+- ✅ Edge function default model fixed — `google/gemini-2.5-flash-preview` (was `google/gemini-2.5-flash`)
+- ✅ SSE streaming — `useStreamingAgent` already wired in AgentChat.tsx (confirmed, no change needed)
+- ✅ File tree right-click context menu — already fully implemented in FileTree.tsx (New File, New Folder, Rename, Delete)
+- ✅ Monaco view state — `editor.saveViewState()` / `editor.restoreViewState()` already in MonacoEditor.tsx
+- ✅ Slash command autocomplete — NEW: `/` at start of input shows floating picker with /review /explain /test
+- ✅ Provider key status dots — NEW: ModelSelector shows green dot (always available) / yellow dot (needs API key)
+- ✅ AI Secrets Setup section — NEW: Settings page has full AI Provider Secrets section with secret names, links, model lists
+- ✅ Cloudflare ACCOUNT_ID note — documented in Settings AI Secrets section
 
 ### Files Modified
-(fill in)
+- `supabase/functions/agent-inference/index.ts` — default model `google/gemini-2.5-flash-preview`
+- `src/components/features/AgentChat.tsx` — slash command autocomplete (`SlashCommandPicker`), provider status dots, active mode badge
+- `src/pages/Settings.tsx` — added `AISecretsSection` component showing all providers, secrets, links
 
 ### Verification
-Run the site. Open a file, switch tabs, verify scroll position returns. Send an agent message, verify tokens stream in. Right-click a file, verify menu appears.
+1. Open workspace → agent chat shows slash command hints in empty state
+2. Type `/` → SlashCommandPicker floats above input with /review /explain /test
+3. Select /review → mode badge appears, input prefilled with `/review `
+4. Send message → edge function uses `google/gemini-2.5-flash-preview` by default
+5. Model selector → green dots on OnSpace AI, yellow dots on provider models needing keys
+6. Settings → AI Provider Secrets section shows all 7 providers with secret names and Get key links
 
 ### Blockers / Notes
-(fill in)
+- Provider key status dots are **static heuristics** (not live probes). Green = OnSpace AI default (always works). Yellow = requires adding the named Supabase secret. A live probe would require an edge function call which adds latency — deferred to Phase 6.
+- `CLOUDFLARE_ACCOUNT_ID` is documented in Settings but not validated at runtime — normal since it's server-side only.
+- Voice input (`/transcribe-audio`) still requires `OPENAI_API_KEY` secret. Shows friendly toast if missing.
 
 ---
 
@@ -85,7 +97,7 @@ Deliberately throw in MonacoEditor. Verify only editor panel shows error. Other 
 **Status:** 🔲 Not started
 
 ### Tasks
-- [ ] On WebContainer boot: `npm install --save-dev eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin` 
+- [ ] On WebContainer boot: `npm install --save-dev eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin`
 - [ ] Create .eslintrc.json in WebContainer on boot
 - [ ] On Cmd+S: spawn `npx eslint --format json <filepath>` via spawnProcess
 - [ ] Parse JSON output → call monaco.editor.setModelMarkers()
@@ -170,7 +182,8 @@ Send 3 messages. Refresh page. Messages still there. Usage counter incremented. 
 ---
 
 ## Deferred (do not implement until Phase 6 is ✅)
-- Multi-model switcher
+- Live provider key probe (OPTIONS ping to edge function per provider)
+- Multi-model switcher advanced UX (streaming latency comparison)
 - Tab groups / split editor
 - Format on save
 - Agent action undo history

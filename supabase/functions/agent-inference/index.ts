@@ -410,7 +410,8 @@ serve(async (req: Request) => {
     }
 
     // ── Model selection ───────────────────────────────────
-    const selectedModel = model ?? Deno.env.get('DEFAULT_AI_MODEL') ?? 'google/gemini-2.5-flash';
+    // Phase 0 fix: default model updated to gemini-2.5-flash-preview per Phase 0 requirements
+    const selectedModel = model ?? Deno.env.get('DEFAULT_AI_MODEL') ?? 'google/gemini-2.5-flash-preview';
 
     // ── Provider routing ──────────────────────────────────
     const provider = resolveProvider(selectedModel);

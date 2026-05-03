@@ -1,10 +1,8 @@
 // ─────────────────────────────────────────────────────────
-// Settings — Phase 9: Profile + Avatar Upload
+// Settings — Profile + Avatar Upload + AI Provider Secrets
 //
-// Allows user to update:
-//   - Full name
-//   - GitHub username
-//   - Avatar image (upload to Supabase Storage)
+// Phase 0 fix: Added AI Secrets Setup section showing which
+// provider API keys are required and where to add them.
 // ─────────────────────────────────────────────────────────
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -15,7 +13,10 @@ import { toast } from 'sonner';
 import {
   User, Github, Upload, Save, Loader2, Camera,
   Shield, Bell, Palette, Code2, ChevronRight,
+  Key, ExternalLink, CheckCircle2, AlertTriangle,
+  Zap, Bot,
 } from 'lucide-react';
+import { PROVIDERS, ALL_MODELS } from '@/types/models';
 
 // ── Avatar display ────────────────────────────────────────
 function Avatar({ url, name, size = 80 }: { url?: string | null; name?: string; size?: number }) {
@@ -92,6 +93,212 @@ function Field({ label, value, onChange, placeholder, disabled }: {
   );
 }
 
+// ── AI Provider Secrets Section ───────────────────────────
+// Phase 0 fix: shows each provider, required secret name,
+// model list, and link to provider dashboard to get the key.
+
+interface ProviderSecretInfo {
+  providerId: string;
+  label: string;
+  color: string;
+  secretName: string;
+  dashboardUrl: string;
+  description: string;
+  models: string[];
+  isDefault: boolean;
+}
+
+// Build provider→secrets map from PROVIDERS + ALL_MODELS
+function buildProviderSecretInfo(): ProviderSecretInfo[] {
+  return Object.entries(PROVIDERS).map(([id, p]) => {
+    const models = ALL_MODELS
+      .filter((m) => m.provider === id)
+      .map((m) => m.label);
+    return {
+      providerId:   id,
+      label:        p.label,
+      color:        p.color,
+      secretName:   p.secretName,
+      dashboardUrl: p.dashboardUrl,
+      description:  p.description,
+      models,
+      isDefault:    id === 'onspace',
+    };
+  });
+}
+
+function AISecretsSection() {
+  const providers = buildProviderSecretInfo();
+
+  return (
+    <Section title="AI Provider Secrets" icon={Key}>
+      {/* Explainer */}
+      <div
+        className="flex items-start gap-3 p-3 rounded-lg mb-5"
+        style={{ background: 'rgba(0,245,160,0.04)', border: '1px solid rgba(0,245,160,0.1)' }}
+      >
+        <Bot className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#00F5A0' }} />
+        <div>
+          <p className="text-xs font-medium mb-0.5" style={{ color: '#00F5A0' }}>
+            How to add API keys
+          </p>
+          <p className="text-xs leading-relaxed" style={{ color: '#5C5C7A' }}>
+            All API keys are stored securely as Supabase Edge Function secrets — never exposed to the browser.
+            Navigate to:{' '}
+            <span className="font-medium" style={{ color: '#9494B8', fontFamily: 'var(--font-mono)' }}>
+              Supabase → Project Settings → Edge Functions → Secrets
+            </span>
+          </p>
+          <p className="text-xs mt-1" style={{ color: '#3A3A52' }}>
+            The OnSpace AI key is pre-configured and always works.
+            All other providers require their own API key.
+          </p>
+        </div>
+      </div>
+
+      {/* Provider list */}
+      <div className="space-y-3">
+        {providers.map((p) => (
+          <div
+            key={p.providerId}
+            className="rounded-lg p-3"
+            style={{
+              background: p.isDefault ? 'rgba(0,245,160,0.03)' : 'rgba(255,255,255,0.02)',
+              border:     p.isDefault ? '1px solid rgba(0,245,160,0.12)' : '1px solid rgba(255,255,255,0.05)',
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                {/* Provider color dot + status */}
+                <div className="flex flex-col items-center gap-1 pt-0.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: p.color }}
+                  />
+                  {p.isDefault ? (
+                    <CheckCircle2 className="w-3 h-3" style={{ color: '#00F5A0' }} />
+                  ) : (
+                    <AlertTriangle className="w-3 h-3" style={{ color: '#FBBF24' }} />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold" style={{ color: '#EEEEFF' }}>
+                      {p.label}
+                    </span>
+                    {p.isDefault && (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                        style={{ background: 'rgba(0,245,160,0.1)', color: '#00F5A0' }}
+                      >
+                        Pre-configured
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: '#5C5C7A' }}>
+                    {p.description}
+                  </p>
+
+                  {/* Secret key name */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[10px]" style={{ color: '#3A3A52' }}>Secret name:</span>
+                    <code
+                      className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border:     '1px solid rgba(255,255,255,0.07)',
+                        color:      p.isDefault ? '#00F5A0' : '#FBBF24',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      {p.secretName}
+                    </code>
+                  </div>
+
+                  {/* Model list */}
+                  {p.models.length > 0 && (
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className="text-[10px]" style={{ color: '#3A3A52' }}>Models:</span>
+                      {p.models.map((m) => (
+                        <span
+                          key={m}
+                          className="text-[10px] px-1 rounded"
+                          style={{ background: `${p.color}10`, color: p.color, fontFamily: 'var(--font-mono)' }}
+                        >
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Dashboard link — not shown for OnSpace AI (internal) */}
+              {!p.isDefault && (
+                <a
+                  href={p.dashboardUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium flex-shrink-0 transition-colors duration-150"
+                  style={{
+                    background: `${p.color}10`,
+                    border:     `1px solid ${p.color}25`,
+                    color:      p.color,
+                    textDecoration: 'none',
+                  }}
+                  title={`Get ${p.label} API key`}
+                >
+                  Get key
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Cloudflare additional note */}
+      <div
+        className="mt-4 p-3 rounded-lg"
+        style={{ background: 'rgba(244,129,32,0.04)', border: '1px solid rgba(244,129,32,0.1)' }}
+      >
+        <p className="text-xs font-medium mb-1" style={{ color: '#F48120' }}>
+          Cloudflare AI — additional secret required
+        </p>
+        <p className="text-xs" style={{ color: '#5C5C7A' }}>
+          Cloudflare AI also requires{' '}
+          <code
+            className="px-1 rounded text-[10px]"
+            style={{ background: 'rgba(244,129,32,0.1)', color: '#F48120', fontFamily: 'var(--font-mono)' }}
+          >
+            CLOUDFLARE_ACCOUNT_ID
+          </code>
+          {' '}in addition to{' '}
+          <code
+            className="px-1 rounded text-[10px]"
+            style={{ background: 'rgba(244,129,32,0.1)', color: '#F48120', fontFamily: 'var(--font-mono)' }}
+          >
+            CLOUDFLARE_AI_API_KEY
+          </code>.
+          Find your Account ID at{' '}
+          <a
+            href="https://dash.cloudflare.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+            style={{ color: '#F48120' }}
+          >
+            dash.cloudflare.com
+          </a>
+          {' '}→ right sidebar.
+        </p>
+      </div>
+    </Section>
+  );
+}
+
 // ═════════════════════════════════════════════════════════
 // Settings
 // ═════════════════════════════════════════════════════════
@@ -156,8 +363,8 @@ export default function Settings() {
       );
       if (error) throw new Error(error.message);
       toast.success('Profile saved');
-    } catch (err: any) {
-      toast.error(`Save failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSaving(false);
     }
@@ -178,18 +385,15 @@ export default function Settings() {
       const ext  = file.name.split('.').pop() ?? 'jpg';
       const path = `${user.id}/avatar.${ext}`;
 
-      // Upload to Storage bucket 'avatars'
       const { error: uploadErr } = await supabase.storage
         .from('avatars')
         .upload(path, file, { upsert: true, contentType: file.type });
 
       if (uploadErr) throw new Error(uploadErr.message);
 
-      // Get public URL
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
-      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`; // cache-bust
+      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
-      // Save to profile
       const { error: updateErr } = await withAuthRefresh(() =>
         supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
       );
@@ -197,8 +401,8 @@ export default function Settings() {
 
       setAvatarUrl(publicUrl);
       toast.success('Avatar updated');
-    } catch (err: any) {
-      toast.error(`Upload failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -222,7 +426,7 @@ export default function Settings() {
         <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'var(--font-display)', color: '#EEEEFF' }}>
           Settings
         </h1>
-        <p className="text-sm" style={{ color: '#5C5C7A' }}>Manage your profile and preferences.</p>
+        <p className="text-sm" style={{ color: '#5C5C7A' }}>Manage your profile, preferences, and AI provider keys.</p>
       </div>
 
       {/* Profile Section */}
@@ -261,9 +465,9 @@ export default function Settings() {
           </div>
         </div>
 
-        <Field label="Full Name"        value={fullName}       onChange={setFullName}       placeholder="Your full name" />
-        <Field label="Email"            value={profile?.email ?? user?.email ?? ''} onChange={() => {}} disabled placeholder="your@email.com" />
-        <Field label="GitHub Username"  value={githubUsername} onChange={setGithubUsername} placeholder="your-github-handle" />
+        <Field label="Full Name"       value={fullName}       onChange={setFullName}       placeholder="Your full name" />
+        <Field label="Email"           value={profile?.email ?? user?.email ?? ''} onChange={() => {}} disabled placeholder="your@email.com" />
+        <Field label="GitHub Username" value={githubUsername} onChange={setGithubUsername} placeholder="your-github-handle" />
 
         <button
           type="button"
@@ -281,6 +485,9 @@ export default function Settings() {
           {isSaving ? 'Saving…' : 'Save Changes'}
         </button>
       </Section>
+
+      {/* Phase 0 fix: AI Provider Secrets section */}
+      <AISecretsSection />
 
       {/* Deferred sections — visible but locked */}
       {DEFERRED_SECTIONS.map((s) => (

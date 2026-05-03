@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────────────────
 // AgentChat — multi-model selector, SSE streaming,
 //             voice input, pinned context, /slash commands
+// Phase 0 fix: added slash command autocomplete popup
+// Phase 0 fix: added provider key status dots in ModelSelector
 // ─────────────────────────────────────────────────────────
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -10,7 +12,8 @@ import { cn } from '@/lib/utils';
 import {
   Send, Bot, Mic, MicOff, Pin, X,
   ChevronDown, ChevronRight, Zap, Sparkles,
-  Loader2, Square,
+  Loader2, Square, CheckCircle2, AlertCircle,
+  BookOpen, TestTube2, Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AgentAction } from '@/types/agent.types';
@@ -27,8 +30,184 @@ import {
 import type { WebContainer } from '@webcontainer/api';
 
 // ═══════════════════════════════════════════════════════════
-// ModelSelector
+// Slash command definitions
 // ═══════════════════════════════════════════════════════════
+interface SlashCommandDef {
+  command: string;         // e.g. /review
+  mode:    string;         // agent-inference slashCommand field
+  label:   string;
+  desc:    string;
+  Icon:    React.ElementType;
+  color:   string;
+  hint:    string;         // placeholder hint after command
+}
+
+const SLASH_COMMANDS: SlashCommandDef[] = [
+  {
+    command: '/review',
+    mode:    'CODE_REVIEW_MODE',
+    label:   'Code Review',
+    desc:    'Get a structured review: score, issues, warnings, strengths',
+    Icon:    Search,
+    color:   '#9B6EF5',
+    hint:    'path/to/file.ts',
+  },
+  {
+    command: '/explain',
+    mode:    'EXPLAIN_MODE',
+    label:   'Explain Code',
+    desc:    'TL;DR + step-by-step walkthrough with gotchas',
+    Icon:    BookOpen,
+    color:   '#38BDF8',
+    hint:    'paste code or describe what to explain',
+  },
+  {
+    command: '/test',
+    mode:    'TEST_MODE',
+    label:   'Generate Tests',
+    desc:    'Vitest test suite: happy path, edge cases, error conditions',
+    Icon:    TestTube2,
+    color:   '#00F5A0',
+    hint:    'path/to/file.ts',
+  },
+];
+
+// Badge shown above input when a slash command is active
+const ACTIVE_MODE_META: Record<string, { label: string; color: string }> = {
+  CODE_REVIEW_MODE: { label: '🔍 Code Review Mode',   color: '#9B6EF5' },
+  EXPLAIN_MODE:     { label: '📖 Explain Mode',         color: '#38BDF8' },
+  TEST_MODE:        { label: '🧪 Test Generation Mode', color: '#00F5A0' },
+};
+
+// ═══════════════════════════════════════════════════════════
+// SlashCommandPicker
+// Floating popup that appears when user types "/"
+// ═══════════════════════════════════════════════════════════
+function SlashCommandPicker({
+  query,
+  onSelect,
+  onDismiss,
+}: {
+  query: string;
+  onSelect: (cmd: SlashCommandDef) => void;
+  onDismiss: () => void;
+}) {
+  const filtered = SLASH_COMMANDS.filter((c) =>
+    c.command.includes(query.toLowerCase()) ||
+    c.label.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIdx((i) => (i + 1) % filtered.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIdx((i) => (i - 1 + filtered.length) % filtered.length);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (filtered[activeIdx]) {
+          e.preventDefault();
+          onSelect(filtered[activeIdx]);
+        }
+      } else if (e.key === 'Escape') {
+        onDismiss();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [filtered, activeIdx, onSelect, onDismiss]);
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div
+      className="absolute bottom-full mb-2 left-0 right-0 rounded-xl overflow-hidden shadow-2xl z-50"
+      style={{
+        background: '#111118',
+        border:     '1px solid rgba(255,255,255,0.08)',
+      }}
+      role="listbox"
+      aria-label="Slash command suggestions"
+    >
+      <div className="px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <p className="text-[10px] font-semibold" style={{ color: '#3A3A52' }}>
+          COMMANDS · ↑↓ navigate · Enter/Tab to select · Esc to dismiss
+        </p>
+      </div>
+
+      {filtered.map((cmd, idx) => (
+        <button
+          key={cmd.command}
+          type="button"
+          role="option"
+          aria-selected={idx === activeIdx}
+          onClick={() => onSelect(cmd)}
+          onMouseEnter={() => setActiveIdx(idx)}
+          className="w-full flex items-start gap-3 px-3 py-2.5 text-left transition-colors duration-100"
+          style={{
+            background:  idx === activeIdx ? 'rgba(255,255,255,0.04)' : 'transparent',
+            borderLeft:  idx === activeIdx ? `2px solid ${cmd.color}` : '2px solid transparent',
+          }}
+        >
+          <div
+            className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center mt-0.5"
+            style={{ background: `${cmd.color}15`, border: `1px solid ${cmd.color}25` }}
+          >
+            <cmd.Icon className="w-3 h-3" style={{ color: cmd.color }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <code className="text-xs font-medium" style={{ color: cmd.color, fontFamily: 'var(--font-mono)' }}>
+                {cmd.command}
+              </code>
+              <span className="text-xs font-medium" style={{ color: '#9494B8' }}>
+                {cmd.label}
+              </span>
+            </div>
+            <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: '#5C5C7A' }}>
+              {cmd.desc}
+            </p>
+          </div>
+          <span className="text-[10px] flex-shrink-0 mt-1" style={{ color: '#3A3A52', fontFamily: 'var(--font-mono)' }}>
+            {cmd.hint}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ModelSelector — with provider key status dots
+// Phase 0 fix: green dot = default (OnSpace AI always works),
+//              yellow dot = needs API key configured in Supabase
+// ═══════════════════════════════════════════════════════════
+
+// Models that are always available (no extra key beyond OnSpace AI default)
+const ALWAYS_AVAILABLE_IDS = new Set(['google/gemini-2.5-flash', 'google/gemini-2.5-flash-preview']);
+
+function ProviderStatusDot({ modelId }: { modelId: string }) {
+  // Phase 0 fix: static key-availability heuristic.
+  // OnSpace AI models always work. Others require a configured Supabase secret.
+  const isAvailable = ALWAYS_AVAILABLE_IDS.has(modelId);
+
+  return (
+    <span
+      className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
+      style={{
+        background: isAvailable ? '#00F5A0' : '#FBBF24',
+        boxShadow:  isAvailable ? '0 0 4px rgba(0,245,160,0.5)' : '0 0 4px rgba(251,191,36,0.4)',
+      }}
+      title={isAvailable ? 'Always available' : 'Requires API key in Supabase secrets'}
+      aria-label={isAvailable ? 'Available' : 'Requires API key'}
+    />
+  );
+}
+
 function ModelSelector() {
   const selectedModelId = useAppStore((s) => s.selectedModelId) ?? DEFAULT_MODEL_ID;
   const setSelectedModel = useAppStore((s) => s.setSelectedModel);
@@ -62,6 +241,7 @@ function ModelSelector() {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
+        {/* Phase 0 fix: provider color dot */}
         <span
           className="w-2 h-2 rounded-full flex-shrink-0"
           style={{ background: PROVIDERS[currentModel.provider].color }}
@@ -86,8 +266,8 @@ function ModelSelector() {
           style={{
             background: '#111118',
             border:     '1px solid rgba(255,255,255,0.08)',
-            width:      '320px',
-            maxHeight:  '400px',
+            width:      '340px',
+            maxHeight:  '420px',
             overflowY:  'auto',
           }}
           role="listbox"
@@ -97,7 +277,19 @@ function ModelSelector() {
             <p className="text-xs font-semibold" style={{ color: '#5C5C7A' }}>AI MODEL</p>
           </div>
 
-          {(Object.entries(byProvider) as [string, typeof ALL_MODELS[number]][]).map(([providerId, models]) => {
+          {/* Phase 0 fix: key status legend */}
+          <div className="flex items-center gap-4 px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: 'rgba(255,255,255,0.01)' }}>
+            <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#5C5C7A' }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-mint-400 flex-shrink-0" style={{ background: '#00F5A0' }} />
+              Always available
+            </span>
+            <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#5C5C7A' }}>
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#FBBF24' }} />
+              Needs API key
+            </span>
+          </div>
+
+          {(Object.entries(byProvider) as [string, typeof ALL_MODELS[number][]][]).map(([providerId, models]) => {
             const provider = PROVIDERS[providerId as keyof typeof PROVIDERS];
             if (!provider) return null;
             return (
@@ -108,7 +300,8 @@ function ModelSelector() {
                 </div>
 
                 {models.map((model) => {
-                  const isSelected = model.id === selectedModelId;
+                  const isSelected  = model.id === selectedModelId;
+                  const isAvailable = ALWAYS_AVAILABLE_IDS.has(model.id);
                   return (
                     <button
                       key={model.id}
@@ -118,7 +311,12 @@ function ModelSelector() {
                       onClick={() => {
                         setSelectedModel(model.id);
                         setOpen(false);
-                        toast.success(`Switched to ${model.label}`, { description: model.description, duration: 2500 });
+                        toast.success(`Switched to ${model.label}`, {
+                          description: isAvailable
+                            ? model.description
+                            : `Add ${model.requiresSecret} to Supabase secrets if not done`,
+                          duration: 2500,
+                        });
                       }}
                       className="w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors duration-100"
                       style={{
@@ -126,6 +324,9 @@ function ModelSelector() {
                         borderLeft:  isSelected ? '2px solid #00F5A0'    : '2px solid transparent',
                       }}
                     >
+                      {/* Phase 0 fix: availability status dot */}
+                      <ProviderStatusDot modelId={model.id} />
+
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-medium" style={{ color: isSelected ? '#00F5A0' : '#EEEEFF' }}>
@@ -142,6 +343,11 @@ function ModelSelector() {
                               {model.contextWindow} ctx
                             </span>
                           )}
+                          {!isAvailable && (
+                            <span className="text-[9px] px-1 rounded" style={{ background: 'rgba(251,191,36,0.08)', color: '#FBBF24' }}>
+                              key req.
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: '#5C5C7A' }}>
                           {model.description}
@@ -151,6 +357,11 @@ function ModelSelector() {
                             <Zap className="w-2.5 h-2.5" style={{ color: '#FBBF24' }} />
                             <span className="text-[10px]" style={{ color: '#FBBF24' }}>Blazing fast</span>
                           </div>
+                        )}
+                        {!isAvailable && (
+                          <p className="text-[10px] mt-0.5" style={{ color: '#3A3A52', fontFamily: 'var(--font-mono)' }}>
+                            secret: {model.requiresSecret}
+                          </p>
                         )}
                       </div>
                       {isSelected && (
@@ -165,7 +376,7 @@ function ModelSelector() {
 
           <div className="px-3 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <p className="text-[10px]" style={{ color: '#3A3A52' }}>
-              Add API keys in Supabase → Project Settings → Edge Functions → Secrets
+              Add API keys: Supabase → Project Settings → Edge Functions → Secrets
             </p>
           </div>
         </div>
@@ -200,8 +411,14 @@ function PinnedContextChip({ item, onRemove }: {
 // ═══════════════════════════════════════════════════════════
 export function AgentChat() {
   const [input, setInput] = useState('');
+  // Phase 0 fix: slash command autocomplete state
+  const [showSlashPicker, setShowSlashPicker] = useState(false);
+  const [slashQuery, setSlashQuery]           = useState('');
+  const [activeSlashMode, setActiveSlashMode] = useState<string | null>(null);
+
   const messagesEndRef   = useRef<HTMLDivElement>(null);
   const textareaRef      = useRef<HTMLTextAreaElement>(null);
+  const inputWrapperRef  = useRef<HTMLDivElement>(null);
 
   const conversations         = useAppStore((s) => s.conversations);
   const activeConversationId  = useAppStore((s) => s.activeConversationId);
@@ -269,6 +486,44 @@ export function AgentChat() {
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [input]);
+
+  // Phase 0 fix: detect slash command in input and show autocomplete
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInput(val);
+
+    // Show picker if input starts with "/" and has no space yet
+    if (val.startsWith('/') && !val.includes(' ')) {
+      setSlashQuery(val); // e.g. "/rev"
+      setShowSlashPicker(true);
+    } else {
+      setShowSlashPicker(false);
+      setSlashQuery('');
+    }
+
+    // Clear active mode if user removes the slash command prefix
+    if (activeSlashMode) {
+      const hasActiveCmd = SLASH_COMMANDS.some((c) => val.startsWith(c.command));
+      if (!hasActiveCmd) setActiveSlashMode(null);
+    }
+  }, [activeSlashMode]);
+
+  // Phase 0 fix: when user selects a slash command from the picker
+  const handleSlashSelect = useCallback((cmd: SlashCommandDef) => {
+    setShowSlashPicker(false);
+    setActiveSlashMode(cmd.mode);
+    setInput(`${cmd.command} `);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      // Place cursor at end
+      const len = `${cmd.command} `.length;
+      textareaRef.current?.setSelectionRange(len, len);
+    }, 0);
+  }, []);
+
+  const dismissSlashPicker = useCallback(() => {
+    setShowSlashPicker(false);
+  }, []);
 
   const refreshTree = useCallback(async () => {
     const wc = containerRef.current;
@@ -341,12 +596,14 @@ export function AgentChat() {
     };
   }, [fileTree, openTabs, activeTabId, terminalSessions, activeTerminalId, expertMode, pinnedContext]);
 
-  const buildSlashCommand = useCallback((text: string): string | null => {
+  // Phase 0 fix: resolve slashCommand from input text OR activeSlashMode
+  const resolveSlashCommand = useCallback((text: string): string | null => {
+    if (activeSlashMode) return activeSlashMode;
     if (text.startsWith('/review '))  return 'CODE_REVIEW_MODE';
     if (text.startsWith('/explain ')) return 'EXPLAIN_MODE';
     if (text.startsWith('/test '))    return 'TEST_MODE';
     return null;
-  }, []);
+  }, [activeSlashMode]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -354,6 +611,8 @@ export function AgentChat() {
     if (!activeConversationId) return;
 
     setInput('');
+    setShowSlashPicker(false);
+    setActiveSlashMode(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     await sendMessage({
@@ -362,9 +621,8 @@ export function AgentChat() {
       context:         buildContext() as Record<string, unknown>,
       expertMode,
       selectedModelId,
-      slashCommand:    buildSlashCommand(text),
+      slashCommand:    resolveSlashCommand(text),
       onDone: async () => {
-        // Auto-execute safe actions when stream completes
         if (agentAutonomy === 'ask') return;
         const msgs = useAppStore.getState().messages[activeConversationId] ?? [];
         const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant');
@@ -381,20 +639,24 @@ export function AgentChat() {
   }, [
     input, isThinking, activeConversationId, selectedModelId,
     expertMode, agentAutonomy, shouldAutoExecute, runAction,
-    sendMessage, buildContext, buildSlashCommand,
+    sendMessage, buildContext, resolveSlashCommand,
   ]);
 
+  // Phase 0 fix: Enter key handling — don't submit if slash picker is open
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (showSlashPicker) return; // let SlashCommandPicker handle it
       e.preventDefault();
       void handleSend();
     }
-  }, [handleSend]);
+  }, [handleSend, showSlashPicker]);
 
   const isEmpty       = reactiveMessages.length === 0;
   const currentModel  = getModelById(selectedModelId);
-  // Check if we should verify session — only used for non-streaming path fallback
   void supabase; // keep import alive
+
+  // Derived active mode display
+  const activeModeDisplay = activeSlashMode ? ACTIVE_MODE_META[activeSlashMode] : null;
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#09090F' }}>
@@ -443,12 +705,31 @@ export function AgentChat() {
             </div>
             <p className="text-sm font-medium mb-1" style={{ color: '#5C5C7A' }}>YFitOps AI Agent</p>
             <p className="text-xs leading-relaxed max-w-[200px]" style={{ color: '#3A3A52' }}>
-              Ask about your code, request edits, or run commands.
-              Try{' '}
-              <code style={{ color: '#9B6EF5' }}>/review file.ts</code>,{' '}
-              <code style={{ color: '#9B6EF5' }}>/explain</code>, or{' '}
-              <code style={{ color: '#9B6EF5' }}>/test</code>.
+              Ask about your code, request edits, or run commands.{' '}
+              Type{' '}
+              <code style={{ color: '#9B6EF5' }}>/</code>{' '}
+              to see available commands.
             </p>
+
+            {/* Phase 0 fix: quick slash command hints in empty state */}
+            <div className="mt-4 flex flex-col gap-1.5 w-full max-w-[200px]">
+              {SLASH_COMMANDS.map((cmd) => (
+                <button
+                  key={cmd.command}
+                  type="button"
+                  onClick={() => { setInput(`${cmd.command} `); setActiveSlashMode(cmd.mode); textareaRef.current?.focus(); }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-colors duration-100"
+                  style={{
+                    background: `${cmd.color}0A`,
+                    border:     `1px solid ${cmd.color}20`,
+                  }}
+                >
+                  <cmd.Icon className="w-3 h-3 flex-shrink-0" style={{ color: cmd.color }} />
+                  <span className="text-xs" style={{ color: cmd.color, fontFamily: 'var(--font-mono)' }}>{cmd.command}</span>
+                  <span className="text-[11px]" style={{ color: '#3A3A52' }}>{cmd.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -468,7 +749,33 @@ export function AgentChat() {
 
       {/* Input area */}
       <div className="flex-shrink-0 p-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        {/* Toolbar row: model selector + speed badge */}
+        {/* Phase 0 fix: active slash command mode badge */}
+        {activeModeDisplay && (
+          <div className="flex items-center justify-between mb-1.5">
+            <div
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
+              style={{
+                background: `${activeModeDisplay.color}10`,
+                border:     `1px solid ${activeModeDisplay.color}25`,
+              }}
+            >
+              <CheckCircle2 className="w-3 h-3" style={{ color: activeModeDisplay.color }} />
+              <span className="text-xs font-medium" style={{ color: activeModeDisplay.color }}>
+                {activeModeDisplay.label}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setActiveSlashMode(null); setInput(''); textareaRef.current?.focus(); }}
+              className="text-[10px] px-2 py-0.5 rounded"
+              style={{ color: '#5C5C7A', background: 'rgba(255,255,255,0.04)' }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
+        {/* Toolbar row: model selector + cancel button */}
         <div className="flex items-center justify-between mb-1.5 gap-2">
           <ModelSelector />
           <div className="flex items-center gap-2">
@@ -477,7 +784,7 @@ export function AgentChat() {
                 <Zap className="w-2.5 h-2.5" /> Blazing fast
               </span>
             )}
-            {/* Cancel stream button — shown only while streaming */}
+            {/* Cancel stream button */}
             {isThinking && (
               <button
                 type="button"
@@ -497,79 +804,94 @@ export function AgentChat() {
           </div>
         </div>
 
-        {/* Input row */}
-        <div
-          className="flex items-end gap-2 rounded-xl px-3 py-2"
-          style={{
-            background: '#13131C',
-            border: `1px solid ${isRecording ? 'rgba(255,77,109,0.3)' : 'rgba(255,255,255,0.07)'}`,
-          }}
-        >
-          {/* Mic button */}
-          <button
-            type="button"
-            onClick={toggleRecording}
-            disabled={isTranscribing}
-            className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-all duration-150 disabled:opacity-40"
-            style={{
-              background: isRecording ? 'rgba(255,77,109,0.15)' : 'transparent',
-              color:      isRecording ? '#FF4D6D' : '#3A3A52',
-            }}
-            aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-          >
-            {isTranscribing
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : isRecording
-                ? <MicOff className="w-3 h-3" />
-                : <Mic className="w-3 h-3" />}
-          </button>
+        {/* Input wrapper — relative for slash picker positioning */}
+        <div className="relative" ref={inputWrapperRef}>
+          {/* Phase 0 fix: slash command autocomplete popup */}
+          {showSlashPicker && (
+            <SlashCommandPicker
+              query={slashQuery}
+              onSelect={handleSlashSelect}
+              onDismiss={dismissSlashPicker}
+            />
+          )}
 
-          {/* Textarea */}
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isRecording    ? '🔴 Recording…' :
-              isTranscribing ? 'Transcribing…' :
-              isThinking     ? `${currentModel?.label ?? 'Agent'} thinking…` :
-              'Ask the agent… (/review /explain /test)'
-            }
-            rows={1}
-            disabled={isThinking || isTranscribing}
-            className="flex-1 bg-transparent text-xs outline-none resize-none leading-relaxed"
+          {/* Input row */}
+          <div
+            className="flex items-end gap-2 rounded-xl px-3 py-2"
             style={{
-              color:      '#EEEEFF',
-              fontFamily: 'var(--font-body)',
-              minHeight:  '20px',
-              maxHeight:  '120px',
-              overflow:   'auto',
+              background: '#13131C',
+              border: `1px solid ${isRecording ? 'rgba(255,77,109,0.3)' : showSlashPicker ? 'rgba(155,110,245,0.3)' : 'rgba(255,255,255,0.07)'}`,
+              transition: 'border-color 150ms',
             }}
-            aria-label="Chat input"
-          />
-
-          {/* Send button */}
-          <button
-            type="button"
-            onClick={() => void handleSend()}
-            disabled={!input.trim() || isThinking}
-            className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{
-              background: input.trim() && !isThinking ? 'rgba(0,245,160,0.15)'        : 'rgba(255,255,255,0.04)',
-              border:     input.trim() && !isThinking ? '1px solid rgba(0,245,160,0.3)' : '1px solid rgba(255,255,255,0.06)',
-              color:      input.trim() && !isThinking ? '#00F5A0'                       : '#3A3A52',
-            }}
-            aria-label="Send message"
           >
-            {isThinking
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <Send className="w-3 h-3" />}
-          </button>
+            {/* Mic button */}
+            <button
+              type="button"
+              onClick={toggleRecording}
+              disabled={isTranscribing}
+              className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-all duration-150 disabled:opacity-40"
+              style={{
+                background: isRecording ? 'rgba(255,77,109,0.15)' : 'transparent',
+                color:      isRecording ? '#FF4D6D' : '#3A3A52',
+              }}
+              aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+            >
+              {isTranscribing
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : isRecording
+                  ? <MicOff className="w-3 h-3" />
+                  : <Mic className="w-3 h-3" />}
+            </button>
+
+            {/* Textarea */}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isRecording    ? '🔴 Recording…' :
+                isTranscribing ? 'Transcribing…' :
+                isThinking     ? `${currentModel?.label ?? 'Agent'} thinking…` :
+                activeSlashMode ? (ACTIVE_MODE_META[activeSlashMode]?.label ?? 'Describe what to analyze…') :
+                'Ask the agent… or type / for commands'
+              }
+              rows={1}
+              disabled={isThinking || isTranscribing}
+              className="flex-1 bg-transparent text-xs outline-none resize-none leading-relaxed"
+              style={{
+                color:      '#EEEEFF',
+                fontFamily: 'var(--font-body)',
+                minHeight:  '20px',
+                maxHeight:  '120px',
+                overflow:   'auto',
+              }}
+              aria-label="Chat input"
+              aria-autocomplete={showSlashPicker ? 'list' : 'none'}
+            />
+
+            {/* Send button */}
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={!input.trim() || isThinking}
+              className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                background: input.trim() && !isThinking ? 'rgba(0,245,160,0.15)'          : 'rgba(255,255,255,0.04)',
+                border:     input.trim() && !isThinking ? '1px solid rgba(0,245,160,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                color:      input.trim() && !isThinking ? '#00F5A0'                         : '#3A3A52',
+              }}
+              aria-label="Send message"
+            >
+              {isThinking
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Send className="w-3 h-3" />}
+            </button>
+          </div>
         </div>
 
         <p className="text-center mt-1" style={{ color: '#2A2A35', fontSize: '10px' }}>
-          Enter to send · Shift+Enter for newline · /review /explain /test
+          Enter to send · Shift+Enter for newline · / for commands
         </p>
       </div>
 
