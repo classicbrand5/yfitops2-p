@@ -251,7 +251,48 @@ This document tracks everything that was intentionally deferred, skipped, partia
 
 ---
 
-## Bug Fixes — Agent Non-Functional (Post Phase 10)
+## Phase 11 — Multi-Provider AI Agent
+
+### ✅ Completed
+- `src/types/models.ts` — `ALL_MODELS` (10 models across 6 providers), `PROVIDERS` meta, `getModelById()`, `getModelsByProvider()`, `DEFAULT_MODEL_ID`
+- `src/store/useAppStore.ts` — `selectedModelId` added to agent slice (persisted), `setSelectedModel(id)` action
+- `src/components/features/AgentChat.tsx` — `<ModelSelector />` glassmorphism dropdown: grouped by provider, color dots, speed badges (Blazing/Free/Best Code), context window labels, onselect toast
+- AgentChat `handleSend` now passes `model: selectedModelId` to the `agent-inference` edge function
+- 503 error handling: when a provider API key is missing, shows a descriptive toast naming the exact Supabase secret to add
+- `supabase/functions/agent-inference/index.ts` — **v2 upgrade**:
+  - `resolveProvider(modelId)` routes to correct API key + base URL per model prefix
+  - OpenRouter gets required `HTTP-Referer` + `X-Title` headers
+  - `normalizeModelId()` strips `cerebras/` prefix before API call
+  - `response_format: json_object` only sent to providers that support it
+  - Markdown fence stripping for models that ignore `json_object` instruction
+  - Rate limit check from `profiles.ai_requests_limit` (DB column, not hard-coded)
+  - Enriched analytics: model, latency, tokens, action types, slash command, wasJsonValid
+  - `EdgeRuntime.waitUntil()` for analytics on Deno Deploy
+  - Typed slash commands: `CODE_REVIEW_MODE`, `EXPLAIN_MODE`, `TEST_MODE`
+  - Context trimmer: 12K char budget, priority order: pinnedContext > activeFile > openFiles > terminal > fileTree
+  - Action validator: typed + normalised, drops malformed actions silently
+  - Production system prompt with examples for edit_file diff, run_command, delete_file
+  - SSE streaming pass-through when `stream: true`
+  - Singleton admin client (module-level, reused across warm Deno invocations)
+
+### ⚠️ Required Secrets (add in Supabase → Project Settings → Edge Functions → Secrets)
+| Secret | Provider | Free Tier |
+|---|---|---|
+| `GOOGLE_AI_API_KEY` | Google AI Studio | 15 RPM / 1500 req/day |
+| `GROQ_API_KEY` | Groq Cloud | Very generous free tier |
+| `OPENROUTER_API_KEY` | OpenRouter | Free models always available |
+| `CEREBRAS_API_KEY` | Cerebras | Generous free tier |
+| `TOGETHER_AI_API_KEY` | Together AI | $1 free credit |
+
+Note: `ONSPACE_AI_API_KEY` is already set. OnSpace AI (Gemini 2.5 Flash) works out of the box.
+
+### ⚠️ Deferred / Pending
+- SSE streaming client-side reader (edge function supports `stream: true`, AgentChat uses non-streaming invoke)
+- Cerebras: disambiguate from Groq's llama models by requiring `cerebras/` prefix in frontend model IDs (already implemented in `ALL_MODELS` and routing logic)
+- Per-model token usage tracking (currently all increments go to the same `ai_requests_used` counter)
+- Model availability check on startup (ping provider to verify key is valid)
+
+
 
 ### ✅ Fixed
 - **Bug 1 — Invalid UUID format (Supabase 400 errors):** `generateId()` in `src/lib/utils.ts` was producing `"${Date.now()}-${randomString}"` (e.g. `"1777669995522-yjikvi3"`) which PostgreSQL's `uuid` column type rejects. Fixed by replacing the body with `crypto.randomUUID()` — every entity ID (messages, conversations, tabs, terminal sessions, notifications) now produces proper RFC 4122 UUIDs. All `ai_messages` and `ai_conversations` inserts now succeed with `[HTTP/2 201]`.

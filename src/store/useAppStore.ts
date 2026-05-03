@@ -26,6 +26,7 @@ import type {
   ActionResult,
   ConversationMeta,
 } from '@/types/agent.types';
+import { DEFAULT_MODEL_ID } from '@/types/models';
 
 // ── Pinned context item ────────────────────────────────────
 export interface PinnedContextItem {
@@ -155,6 +156,7 @@ export interface AppState {
   streamingMessageId: string | null;
   pendingActions: AgentAction[];
   agentAutonomy: 'ask' | 'auto-safe' | 'full-auto';
+  selectedModelId: string;
   agentContext: {
     includeGitHistory: boolean;
     includeOpenFiles: boolean;
@@ -178,6 +180,7 @@ export interface AppState {
     result?: ActionResult
   ) => void;
   setAgentAutonomy: (level: 'ask' | 'auto-safe' | 'full-auto') => void;
+  setSelectedModel: (modelId: string) => void;
   updateAgentContext: (patch: Partial<AppState['agentContext']>) => void;
   clearChat: (convId: string) => void;
   createNewConversation: () => string;
@@ -536,6 +539,7 @@ export const useAppStore = create<AppState>()(
         streamingMessageId: null,
         pendingActions: [],
         agentAutonomy: 'ask',
+        selectedModelId: DEFAULT_MODEL_ID,
         agentContext: {
           includeGitHistory: true,
           includeOpenFiles: true,
@@ -650,6 +654,11 @@ export const useAppStore = create<AppState>()(
         setAgentAutonomy: (level) =>
           set((state) => {
             state.agentAutonomy = level;
+          }),
+
+        setSelectedModel: (modelId) =>
+          set((state) => {
+            state.selectedModelId = modelId;
           }),
 
         updateAgentContext: (patch) =>
@@ -780,6 +789,7 @@ export const useAppStore = create<AppState>()(
           expertMode: state.expertMode,
           agentAutonomy: state.agentAutonomy,
           agentContext: state.agentContext,
+          selectedModelId: state.selectedModelId,
           expandedFolders: state.expandedFolders,
           activeConversationId: state.activeConversationId,
           conversations: state.conversations,

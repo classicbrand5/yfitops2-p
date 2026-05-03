@@ -1,7 +1,7 @@
 
 // ─────────────────────────────────────────────────────────
-// AgentChat — Enhanced with Voice Input + Pinned Context
-//            + Slash Commands + DiffPreview (Sections C1,C2,C5,B3)
+// AgentChat — with multi-model selector, voice input,
+//             pinned context, /slash commands, DiffPreview
 // ─────────────────────────────────────────────────────────
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -12,7 +12,7 @@ import {
   Send, Bot, User, Terminal, FileEdit, FilePlus, Trash2,
   FolderPlus, Search, GitPullRequest, FileText, AlertCircle,
   Loader2, Sparkles, Play, Eye, Mic, MicOff, Pin, X,
-  ChevronDown, ChevronUp, Code2,
+  ChevronDown, ChevronUp, Code2, ChevronRight, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AgentAction, AgentMessage, AgentResponse } from '@/types/agent.types';
@@ -22,6 +22,13 @@ import { buildFileTree } from '@/core/webcontainer/fs';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { DiffPreview } from '@/components/features/DiffPreview';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
+import {
+  ALL_MODELS,
+  getModelsByProvider,
+  getModelById,
+  PROVIDERS,
+  DEFAULT_MODEL_ID,
+} from '@/types/models';
 import type { WebContainer } from '@webcontainer/api';
 
 // ── Action meta ───────────────────────────────────────────
@@ -37,6 +44,181 @@ const ACTION_META: Record<string, { Icon: React.ElementType; label: string; colo
 };
 
 const DESTRUCTIVE_TYPES: AgentAction['type'][] = ['delete_file', 'open_pr'];
+
+// ══════════════════════════════════════════════════════════
+// ModelSelector — dropdown to switch AI model/provider
+// ══════════════════════════════════════════════════════════
+function ModelSelector() {
+  const selectedModelId = useAppStore((s) => s.selectedModelId) ?? DEFAULT_MODEL_ID;
+  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const currentModel = getModelById(selectedModelId) ?? ALL_MODELS[0];
+  const byProvider = getModelsByProvider();
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-all duration-150 group"
+        style={{
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          color: '#9494B8',
+        }}
+        title="Switch AI model"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        {/* Provider color dot */}
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ background: PROVIDERS[currentModel.provider].color }}
+        />
+        <span className="max-w-[120px] truncate" style={{ color: '#C8C8E8' }}>
+          {currentModel.label}
+        </span>
+        {currentModel.badge && (
+          <span
+            className="px-1 py-0.5 rounded text-[9px] font-semibold flex-shrink-0"
+            style={{ background: `${currentModel.badgeColor}20`, color: currentModel.badgeColor }}
+          >
+            {currentModel.badge}
+          </span>
+        )}
+        <ChevronDown className={cn('w-3 h-3 flex-shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div
+          className="absolute bottom-full mb-1 left-0 z-50 rounded-xl overflow-hidden shadow-2xl"
+          style={{
+            background: '#111118',
+            border: '1px solid rgba(255,255,255,0.08)',
+            width: '320px',
+            maxHeight: '400px',
+            overflowY: 'auto',
+          }}
+          role="listbox"
+          aria-label="Select AI model"
+        >
+          <div className="px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <p className="text-xs font-semibold" style={{ color: '#5C5C7A', fontFamily: 'var(--font-display)' }}>
+              AI MODEL
+            </p>
+          </div>
+
+          {(Object.entries(byProvider) as [string, typeof ALL_MODELS[0][]][]).map(([providerId, models]) => {
+            const provider = PROVIDERS[providerId as keyof typeof PROVIDERS];
+            if (!provider) return null;
+            return (
+              <div key={providerId}>
+                {/* Provider group header */}
+                <div
+                  className="flex items-center gap-2 px-3 py-1.5"
+                  style={{ background: 'rgba(255,255,255,0.02)' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: provider.color }} />
+                  <span className="text-xs font-medium" style={{ color: '#5C5C7A' }}>
+                    {provider.label}
+                  </span>
+                </div>
+
+                {/* Model options */}
+                {models.map((model) => {
+                  const isSelected = model.id === selectedModelId;
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => {
+                        setSelectedModel(model.id);
+                        setOpen(false);
+                        toast.success(`Switched to ${model.label}`, {
+                          description: model.description,
+                          duration: 2500,
+                        });
+                      }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors duration-100"
+                      style={{
+                        background: isSelected ? 'rgba(0,245,160,0.05)' : 'transparent',
+                        borderLeft: isSelected ? '2px solid #00F5A0' : '2px solid transparent',
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className="text-xs font-medium"
+                            style={{ color: isSelected ? '#00F5A0' : '#EEEEFF' }}
+                          >
+                            {model.label}
+                          </span>
+                          {model.badge && (
+                            <span
+                              className="px-1 py-0.5 rounded text-[9px] font-semibold"
+                              style={{
+                                background: `${model.badgeColor}20`,
+                                color: model.badgeColor,
+                              }}
+                            >
+                              {model.badge}
+                            </span>
+                          )}
+                          {model.contextWindow && (
+                            <span className="text-[9px]" style={{ color: '#3A3A52' }}>
+                              {model.contextWindow} ctx
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: '#5C5C7A' }}>
+                          {model.description}
+                        </p>
+                        {model.speed === 'blazing' && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Zap className="w-2.5 h-2.5" style={{ color: '#FBBF24' }} />
+                            <span className="text-[10px]" style={{ color: '#FBBF24' }}>Blazing fast</span>
+                          </div>
+                        )}
+                      </div>
+                      {isSelected && (
+                        <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#00F5A0' }} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {/* Footer: provider setup hint */}
+          <div
+            className="px-3 py-2"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+          >
+            <p className="text-[10px]" style={{ color: '#3A3A52' }}>
+              Add provider API keys in Supabase → Project Settings → Edge Functions → Secrets
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── ActionCard ────────────────────────────────────────────
 function ActionCard({
@@ -58,20 +240,27 @@ function ActionCard({
     action.status === 'rejected'  ? '#FF4D6D' : '#5C5C7A';
 
   const hasDiff = action.type === 'edit_file' && !!action.diff;
+  const needsConfirm = action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type);
 
   return (
     <div
       className="flex items-start gap-2 rounded-lg px-3 py-2 mt-2 transition-colors duration-100"
       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
     >
-      <div className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center mt-0.5" style={{ background: `${color}15`, border: `1px solid ${color}30` }}>
+      <div
+        className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center mt-0.5"
+        style={{ background: `${color}15`, border: `1px solid ${color}30` }}
+      >
         <Icon className="w-3 h-3" style={{ color }} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <span className="text-xs font-medium" style={{ color }}>{label}</span>
           {action.status !== 'pending' && (
-            <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ background: `${statusColor}18`, color: statusColor, fontSize: '10px' }}>
+            <span
+              className="text-xs font-medium px-1.5 py-0.5 rounded"
+              style={{ background: `${statusColor}18`, color: statusColor, fontSize: '10px' }}
+            >
               {action.status}
             </span>
           )}
@@ -92,7 +281,6 @@ function ActionCard({
         )}
         <p className="text-xs leading-relaxed" style={{ color: '#5C5C7A' }}>{action.explanation}</p>
 
-        {/* Diff preview toggle */}
         {hasDiff && (
           <button
             type="button"
@@ -107,29 +295,22 @@ function ActionCard({
         )}
         {hasDiff && showDiff && <DiffPreview diff={action.diff!} />}
 
-        {/* Apply / Review */}
         {action.status === 'pending' && action.type !== 'open_pr' && (
           <button
             type="button"
             disabled={isExecuting}
-            onClick={() => {
-              if (action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type)) {
-                onReview(action);
-              } else {
-                onApply(action);
-              }
-            }}
+            onClick={() => needsConfirm ? onReview(action) : onApply(action)}
             className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
-              background: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? 'rgba(251,191,36,0.1)' : 'rgba(0,245,160,0.1)',
-              border: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? '1px solid rgba(251,191,36,0.25)' : '1px solid rgba(0,245,160,0.25)',
-              color: action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? '#FBBF24' : '#00F5A0',
+              background: needsConfirm ? 'rgba(251,191,36,0.1)' : 'rgba(0,245,160,0.1)',
+              border: needsConfirm ? '1px solid rgba(251,191,36,0.25)' : '1px solid rgba(0,245,160,0.25)',
+              color: needsConfirm ? '#FBBF24' : '#00F5A0',
             }}
           >
             {isExecuting ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> :
-              action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? <Eye className="w-2.5 h-2.5" /> :
+              needsConfirm ? <Eye className="w-2.5 h-2.5" /> :
               <Play className="w-2.5 h-2.5" />}
-            {action.requiresConfirmation || DESTRUCTIVE_TYPES.includes(action.type) ? 'Review' : 'Apply'}
+            {needsConfirm ? 'Review' : 'Apply'}
           </button>
         )}
 
@@ -155,7 +336,11 @@ function ThinkingDots() {
   return (
     <div className="flex items-center gap-1" aria-label="Agent thinking">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="w-1.5 h-1.5 rounded-full animate-thinking" style={{ background: '#9B6EF5', animationDelay: `${i * 0.18}s` }} />
+        <div
+          key={i}
+          className="w-1.5 h-1.5 rounded-full animate-thinking"
+          style={{ background: '#9B6EF5', animationDelay: `${i * 0.18}s` }}
+        />
       ))}
     </div>
   );
@@ -175,7 +360,8 @@ function MessageBubble({
   return (
     <div className={cn('flex gap-2.5 animate-fade-up', isUser ? 'justify-end' : 'justify-start')}>
       {!isUser && (
-        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5" style={{ background: 'rgba(155,110,245,0.15)', border: '1px solid rgba(155,110,245,0.2)' }}>
+        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5"
+          style={{ background: 'rgba(155,110,245,0.15)', border: '1px solid rgba(155,110,245,0.2)' }}>
           <Bot className="w-3.5 h-3.5" style={{ color: '#9B6EF5' }} />
         </div>
       )}
@@ -225,7 +411,8 @@ function MessageBubble({
       </div>
 
       {isUser && (
-        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5" style={{ background: 'rgba(0,245,160,0.12)', border: '1px solid rgba(0,245,160,0.2)' }}>
+        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5"
+          style={{ background: 'rgba(0,245,160,0.12)', border: '1px solid rgba(0,245,160,0.2)' }}>
           <User className="w-3.5 h-3.5" style={{ color: '#00F5A0' }} />
         </div>
       )}
@@ -234,7 +421,10 @@ function MessageBubble({
 }
 
 // ── PinnedContextChip ─────────────────────────────────────
-function PinnedContextChip({ item, onRemove }: { item: { id: string; label: string; type: string }; onRemove: (id: string) => void }) {
+function PinnedContextChip({ item, onRemove }: {
+  item: { id: string; label: string; type: string };
+  onRemove: (id: string) => void;
+}) {
   return (
     <div
       className="flex items-center gap-1.5 px-2 py-1 rounded-full flex-shrink-0"
@@ -244,13 +434,7 @@ function PinnedContextChip({ item, onRemove }: { item: { id: string; label: stri
       <span className="text-xs truncate max-w-[100px]" style={{ color: '#9B6EF5', fontFamily: 'var(--font-mono)' }}>
         {item.label}
       </span>
-      <button
-        type="button"
-        onClick={() => onRemove(item.id)}
-        className="flex-shrink-0"
-        style={{ color: '#5C5C7A' }}
-        aria-label={`Unpin ${item.label}`}
-      >
+      <button type="button" onClick={() => onRemove(item.id)} style={{ color: '#5C5C7A' }} aria-label={`Unpin ${item.label}`}>
         <X className="w-2.5 h-2.5" />
       </button>
     </div>
@@ -276,6 +460,7 @@ export function AgentChat() {
   const isThinking           = useAppStore((s) => s.isThinking);
   const expertMode           = useAppStore((s) => s.expertMode);
   const agentAutonomy        = useAppStore((s) => s.agentAutonomy);
+  const selectedModelId      = useAppStore((s) => s.selectedModelId) ?? DEFAULT_MODEL_ID;
   const setFileTree          = useAppStore((s) => s.setFileTree);
   const pinnedContext        = useAppStore((s) => s.pinnedContext);
   const removePinnedContext  = useAppStore((s) => s.removePinnedContext);
@@ -287,9 +472,7 @@ export function AgentChat() {
   const activeTerminalId = useAppStore((s) => s.activeTerminalId);
 
   const [pendingAction, setPendingAction] = useState<{
-    action: AgentAction;
-    msgId: string;
-    actionIdx: number;
+    action: AgentAction; msgId: string; actionIdx: number;
   } | null>(null);
   const [executingActionId, setExecutingActionId] = useState<string | null>(null);
   const containerRef = useRef<WebContainer | null>(null);
@@ -298,7 +481,6 @@ export function AgentChat() {
     (s) => (s.activeConversationId ? (s.messages[s.activeConversationId] ?? []) : [])
   );
 
-  // Voice input hook
   const { isRecording, isTranscribing, toggleRecording } = useVoiceInput({
     onTranscript: (text) => {
       setInput((prev) => prev + (prev ? ' ' : '') + text);
@@ -308,7 +490,7 @@ export function AgentChat() {
 
   useEffect(() => {
     if (conversations.length === 0) createNewConversation();
-  }, [conversations, createNewConversation]); // Removed eslint-disable-line
+  }, [conversations, createNewConversation]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -345,15 +527,12 @@ export function AgentChat() {
   const runAction = useCallback(async (action: AgentAction, msgId: string, actionIdx: number) => {
     const wc = containerRef.current;
     if (!wc) { toast.error('Workspace not ready'); return; }
-
     const execKey = `${msgId}-${actionIdx}`;
     setExecutingActionId(execKey);
     updateActionStatus(msgId, actionIdx, 'executing');
-
     const result = await executeAction(wc, action);
     updateActionStatus(msgId, actionIdx, result.success ? 'done' : 'failed', result);
     setExecutingActionId(null);
-
     if (result.success) {
       toast.success(result.output ?? 'Action completed');
       if (isFileSystemAction(action.type)) await refreshTree();
@@ -362,7 +541,6 @@ export function AgentChat() {
     }
   }, [updateActionStatus, refreshTree]);
 
-  // Auto-execute based on autonomy level (Section A2)
   const SAFE_TYPES: AgentAction['type'][] = ['read_file', 'write_file', 'create_dir', 'search_files'];
   const ALWAYS_CONFIRM: AgentAction['type'][] = ['delete_file', 'open_pr'];
 
@@ -383,10 +561,6 @@ export function AgentChat() {
       const idx = msg.actions.findIndex((a) => a === action);
       if (idx !== -1) { runAction(action, msg.id, idx); return; }
     }
-    // If action is not found in current messages, assume it's a new action or from a different context
-    // This 'unknown' fallback is a workaround for actions not directly linked to a msg.id/idx from current state.
-    // In a production app, you might want to ensure actions are always tied to a message for proper tracking.
-    // For now, this ensures `runAction` can still be called.
     runAction(action, 'unknown', 0);
   }, [activeConversationId, runAction]);
 
@@ -397,7 +571,6 @@ export function AgentChat() {
       const idx = msg.actions.findIndex((a) => a === action);
       if (idx !== -1) { setPendingAction({ action, msgId: msg.id, actionIdx: idx }); return; }
     }
-    // Similar fallback as handleApplyAction for consistency if action not found.
     setPendingAction({ action, msgId: 'unknown', actionIdx: 0 });
   }, [activeConversationId]);
 
@@ -405,20 +578,18 @@ export function AgentChat() {
     const activeTerminal = activeTerminalId ? terminalSessions[activeTerminalId] : null;
     return {
       fileTree: fileTree.slice(0, 80).map((f) => ({ name: f.name, path: f.path, type: f.type })),
-      openFiles: openTabs.map((t) => ({ path: t.path, language: t.language })),
+      openFiles: openTabs.map((t) => t.path),
       activeFile: openTabs.find((t) => t.id === activeTabId)?.path ?? null,
-      terminalOutput: activeTerminal?.output?.slice(-30) ?? [],
+      terminalOutput: activeTerminal?.output?.slice(-30).join('\n') ?? '',
       expertMode,
-      // Section C5: pinned context
       pinnedContext: pinnedContext.map((p) => ({ label: p.label, content: p.content, type: p.type })),
     };
   }, [fileTree, openTabs, activeTabId, terminalSessions, activeTerminalId, expertMode, pinnedContext]);
 
-  // Detect /review slash command (Section C2)
   const buildSystemOverride = useCallback((text: string): string | null => {
-    if (text.startsWith('/review ')) {
-      return 'CODE_REVIEW_MODE';
-    }
+    if (text.startsWith('/review ')) return 'CODE_REVIEW_MODE';
+    if (text.startsWith('/explain ')) return 'EXPLAIN_MODE';
+    if (text.startsWith('/test ')) return 'TEST_MODE';
     return null;
   }, []);
 
@@ -429,9 +600,8 @@ export function AgentChat() {
 
     sendInFlightRef.current = true;
 
-    // Bug 4 fix — get session, refresh if expired or about to expire (< 60s)
+    // Bug 4 fix — proactive session refresh before every send
     let { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
     if (sessionError || !session) {
       const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
       if (refreshErr || !refreshed.session) {
@@ -441,19 +611,12 @@ export function AgentChat() {
       }
       session = refreshed.session;
     } else {
-      // Proactively refresh if token expires within 60 seconds
       const expiresAt = session.expires_at ?? 0;
       const nowSecs = Math.floor(Date.now() / 1000);
       if (expiresAt - nowSecs < 60) {
         const { data: refreshed } = await supabase.auth.refreshSession();
         if (refreshed.session) session = refreshed.session;
       }
-    }
-
-    if (!session) {
-      toast.error('You must be logged in to use the agent');
-      sendInFlightRef.current = false;
-      return;
     }
 
     const userMsg: AgentMessage = {
@@ -468,15 +631,14 @@ export function AgentChat() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     const assistantId = crypto.randomUUID();
-    const assistantPlaceholder: AgentMessage = {
+    addMessage(activeConversationId, {
       id: assistantId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       isStreaming: true,
       actions: [] as AgentAction[],
-    };
-    addMessage(activeConversationId, assistantPlaceholder);
+    });
     setIsThinking(true);
 
     try {
@@ -494,10 +656,11 @@ export function AgentChat() {
           context: ctx,
           expertMode,
           slashCommand: slashMode,
+          model: selectedModelId,           // ← Send selected model to edge function
+          conversationId: activeConversationId,
         },
         headers: {
-          // Explicitly pass fresh token so edge function always receives a valid JWT
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${session!.access_token}`,
         },
       });
 
@@ -508,7 +671,6 @@ export function AgentChat() {
             const statusCode = error.context?.status ?? 500;
             const textContent = await error.context?.text();
             errorMessage = `[${statusCode}] ${textContent || error.message}`;
-            // Handle 401 specifically — session is invalid, force re-auth
             if (statusCode === 401) {
               toast.error('Authentication failed', {
                 description: 'Please sign out and sign in again.',
@@ -518,25 +680,39 @@ export function AgentChat() {
               setIsThinking(false);
               return;
             }
+            // Provider not configured
+            if (statusCode === 503) {
+              const currentModel = getModelById(selectedModelId);
+              toast.error(`Provider not configured`, {
+                description: `Add "${currentModel?.requiresSecret ?? 'API key'}" to Supabase Edge Function secrets to use ${currentModel?.label ?? selectedModelId}.`,
+                duration: 6000,
+              });
+              sendInFlightRef.current = false;
+              setIsThinking(false);
+              updateMessage(activeConversationId, assistantId, {
+                content: '',
+                error: errorMessage,
+                isStreaming: false,
+              });
+              return;
+            }
           } catch { /* ignore */ }
         }
         throw new Error(errorMessage);
       }
 
       const response = data as AgentResponse;
-
       updateMessage(activeConversationId, assistantId, {
         content: response.final ?? 'No response',
         actions: response.actions ?? [],
         isStreaming: false,
       });
 
-      // Auto-execute safe actions based on autonomy level (Section A2)
+      // Auto-execute based on autonomy level
       if (response.actions && agentAutonomy !== 'ask') {
         for (let idx = 0; idx < response.actions.length; idx++) {
           const action = response.actions[idx];
           if (shouldAutoExecute(action)) {
-            // Small delay between auto-executions
             await new Promise((r) => setTimeout(r, 300 * idx));
             await runAction(action as AgentAction, assistantId, idx);
           }
@@ -555,7 +731,7 @@ export function AgentChat() {
       sendInFlightRef.current = false;
     }
   }, [
-    input, isThinking, activeConversationId,
+    input, isThinking, activeConversationId, selectedModelId,
     addMessage, updateMessage, setIsThinking,
     buildContext, expertMode, agentAutonomy, shouldAutoExecute, runAction, buildSystemOverride,
   ]);
@@ -568,15 +744,14 @@ export function AgentChat() {
   }, [handleSend]);
 
   const isEmpty = reactiveMessages.length === 0;
+  const currentModel = getModelById(selectedModelId);
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#09090F' }}>
       {/* Pinned context chips */}
       {pinnedContext.length > 0 && (
-        <div
-          className="flex-shrink-0 flex items-center gap-2 px-3 py-2 overflow-x-auto"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', scrollbarWidth: 'thin' }}
-        >
+        <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 overflow-x-auto"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', scrollbarWidth: 'thin' }}>
           <Pin className="w-3 h-3 flex-shrink-0" style={{ color: '#9B6EF5' }} />
           {pinnedContext.map((item) => (
             <PinnedContextChip key={item.id} item={item} onRemove={removePinnedContext} />
@@ -584,15 +759,15 @@ export function AgentChat() {
         </div>
       )}
 
-      {/* Autonomy indicator */}
+      {/* Autonomy banner */}
       {agentAutonomy !== 'ask' && (
-        <div
-          className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(251,191,36,0.04)' }}
-        >
+        <div className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(251,191,36,0.04)' }}>
           <Sparkles className="w-3 h-3" style={{ color: '#FBBF24' }} />
           <span className="text-xs" style={{ color: '#FBBF24' }}>
-            {agentAutonomy === 'full-auto' ? 'Full Auto — all actions execute automatically' : 'Auto-Safe — safe actions execute automatically'}
+            {agentAutonomy === 'full-auto'
+              ? 'Full Auto — all actions execute automatically'
+              : 'Auto-Safe — safe actions execute automatically'}
           </span>
         </div>
       )}
@@ -606,12 +781,18 @@ export function AgentChat() {
       >
         {isEmpty && !isThinking && (
           <div className="flex flex-col items-center justify-center h-full text-center py-8">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(155,110,245,0.1)', border: '1px solid rgba(155,110,245,0.2)' }}>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
+              style={{ background: 'rgba(155,110,245,0.1)', border: '1px solid rgba(155,110,245,0.2)' }}>
               <Bot className="w-6 h-6" style={{ color: '#9B6EF5' }} />
             </div>
-            <p className="text-sm font-medium mb-1" style={{ color: '#5C5C7A', fontFamily: 'var(--font-display)' }}>YFitOps AI Agent</p>
+            <p className="text-sm font-medium mb-1" style={{ color: '#5C5C7A', fontFamily: 'var(--font-display)' }}>
+              YFitOps AI Agent
+            </p>
             <p className="text-xs leading-relaxed max-w-[200px]" style={{ color: '#3A3A52' }}>
-              Ask about your code, request edits, or run commands.{'\n'}Try <code style={{ color: '#9B6EF5' }}>/review src/App.tsx</code> for a code review.
+              Ask about your code, request edits, or run commands.{'\n'}
+              Try <code style={{ color: '#9B6EF5' }}>/review file.ts</code>,{' '}
+              <code style={{ color: '#9B6EF5' }}>/explain</code>, or{' '}
+              <code style={{ color: '#9B6EF5' }}>/test</code>.
             </p>
           </div>
         )}
@@ -629,11 +810,27 @@ export function AgentChat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input area */}
       <div className="flex-shrink-0 p-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        {/* Model selector + autonomy — toolbar row */}
+        <div className="flex items-center justify-between mb-1.5 gap-2">
+          <ModelSelector />
+          <div className="flex items-center gap-1">
+            {/* Current model speed indicator */}
+            {currentModel?.speed === 'blazing' && (
+              <span className="text-[10px] flex items-center gap-0.5" style={{ color: '#FBBF24' }}>
+                <Zap className="w-2.5 h-2.5" /> Blazing fast
+              </span>
+            )}
+          </div>
+        </div>
+
         <div
           className="flex items-end gap-2 rounded-xl px-3 py-2"
-          style={{ background: '#13131C', border: `1px solid ${isRecording ? 'rgba(255,77,109,0.3)' : 'rgba(255,255,255,0.07)'}` }}
+          style={{
+            background: '#13131C',
+            border: `1px solid ${isRecording ? 'rgba(255,77,109,0.3)' : 'rgba(255,255,255,0.07)'}`,
+          }}
         >
           {/* Voice button */}
           <button
@@ -646,7 +843,6 @@ export function AgentChat() {
               color: isRecording ? '#FF4D6D' : '#3A3A52',
             }}
             aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-            title={isRecording ? 'Stop recording' : 'Voice input (Whisper)'}
           >
             {isTranscribing ? <Loader2 className="w-3 h-3 animate-spin" /> :
               isRecording ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
@@ -660,16 +856,16 @@ export function AgentChat() {
             placeholder={
               isRecording ? '🔴 Recording…' :
               isTranscribing ? 'Transcribing…' :
-              isThinking ? 'Agent is thinking…' :
-              'Ask the agent… (/review file.ts for code review)'
+              isThinking ? `${currentModel?.label ?? 'Agent'} thinking…` :
+              'Ask the agent… (/review /explain /test)'
             }
             rows={1}
             disabled={isThinking || isTranscribing}
             className="flex-1 bg-transparent text-xs outline-none resize-none leading-relaxed"
             style={{ color: '#EEEEFF', fontFamily: 'var(--font-body)', minHeight: '20px', maxHeight: '120px', overflow: 'auto' }}
             aria-label="Chat input"
-            aria-multiline="true"
           />
+
           <button
             type="button"
             onClick={() => void handleSend()}
@@ -685,8 +881,9 @@ export function AgentChat() {
             {isThinking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3 h-3" />}
           </button>
         </div>
+
         <p className="text-center mt-1" style={{ color: '#2A2A35', fontSize: '10px' }}>
-          Enter to send · Shift+Enter for newline · /review for code review
+          Enter to send · Shift+Enter for newline · /review /explain /test
         </p>
       </div>
 
@@ -694,7 +891,7 @@ export function AgentChat() {
       <ConfirmModal
         open={!!pendingAction}
         title={`Confirm: ${pendingAction?.action.type.replace(/_/g, ' ')}`}
-        description={pendingAction ? `${pendingAction.action.explanation}${pendingAction.action.path ? ` — ${pendingAction.action.path}` : ''}${pendingAction.action.command ? ` — $ ${pendingAction.action.command} ${pendingAction.action.args?.join(' ') ?? ''}` : ''}` : ''}
+        description={pendingAction ? `${pendingAction.action.explanation}${pendingAction.action.path ? ` — ${pendingAction.action.path}` : ''}` : ''}
         detail={pendingAction?.action.content?.slice(0, 400)}
         isDestructive={DESTRUCTIVE_TYPES.includes(pendingAction?.action.type ?? 'read_file')}
         onConfirm={() => {

@@ -233,6 +233,56 @@ Single Zustand store with `subscribeWithSelector` + `persist` (localStorage) + `
 
 ---
 
+## 4.5 Multi-Provider AI System
+
+### Supported Providers & Models
+
+The model selector in AgentChat lets users switch between any of these providers at runtime.
+The selected model ID is sent to `agent-inference` which routes to the correct provider.
+
+| Provider | Model IDs | Speed | Free Tier | Secret Required |
+|---|---|---|---|---|
+| OnSpace AI | `google/gemini-2.5-flash` | Fast | ✅ Default | `ONSPACE_AI_API_KEY` |
+| Google AI Studio | `gemini-2.5-flash-preview-05-20`, `gemini-2.0-flash` | Fast | 15 RPM / 1500 req/day | `GOOGLE_AI_API_KEY` |
+| Groq Cloud | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768` | 🔥 Blazing (600+ tok/s) | Generous | `GROQ_API_KEY` |
+| OpenRouter | `deepseek/deepseek-r1:free`, `google/gemma-3-27b-it:free` | Normal | 200+ free models | `OPENROUTER_API_KEY` |
+| Cerebras | `llama-3.3-70b` (prefix: `cerebras/`) | 🔥 Ultra (2000+ tok/s) | Generous | `CEREBRAS_API_KEY` |
+| Together AI | `Qwen/Qwen2.5-Coder-32B-Instruct` | Normal | $1 free credit | `TOGETHER_AI_API_KEY` |
+
+### Provider Routing Logic (agent-inference edge function)
+
+The `resolveProvider(modelId)` function determines which API key + base URL to use:
+- `gemini-*` (no `google/` prefix) → Google AI Studio
+- `llama-*`, `mixtral-*` → Groq Cloud
+- `cerebras/*` → Cerebras (strips prefix before sending to API)
+- `deepseek/*`, `google/gemma*`, `*:free` → OpenRouter
+- `Qwen/*`, `mistralai/*` → Together AI
+- Everything else → OnSpace AI (default)
+
+All providers use OpenAI-compatible `/chat/completions` endpoints.
+OpenRouter receives extra `HTTP-Referer` and `X-Title` headers per their requirements.
+`response_format: json_object` is only sent to providers that support it.
+
+### Model Definition Files
+- `src/types/models.ts` — `ALL_MODELS`, `PROVIDERS`, `DEFAULT_MODEL_ID`, `getModelById()`, `getModelsByProvider()`
+- `src/store/useAppStore.ts` — `selectedModelId` (persisted), `setSelectedModel(modelId)` action
+- `src/components/features/AgentChat.tsx` — `<ModelSelector />` component (grouped dropdown with badges, speed indicators, provider color dots)
+
+### Adding a New Provider
+1. Add to `PROVIDERS` in `src/types/models.ts`
+2. Add model(s) to `ALL_MODELS` with correct `provider`, `requiresSecret`, and metadata
+3. Add routing logic in `resolveProvider()` in `supabase/functions/agent-inference/index.ts`
+4. Add the API key as a Supabase secret
+
+### Slash Commands
+| Command | Mode | Edge Function Behavior |
+|---|---|---|
+| `/review <path>` | `CODE_REVIEW_MODE` | Structured code review with score, issues, fix actions |
+| `/explain <text>` | `EXPLAIN_MODE` | TL;DR + step-by-step walkthrough, no actions |
+| `/test <text>` | `TEST_MODE` | Generates Vitest test file as `write_file` action |
+
+---
+
 ## 5. Backend
 
 ### 5.1 Supabase Project
