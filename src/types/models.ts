@@ -13,7 +13,8 @@ export type ProviderId =
   | 'groq'
   | 'openrouter'
   | 'cerebras'
-  | 'together';
+  | 'together'
+  | 'cloudflare';
 
 export interface ModelOption {
   id: string;                // The model ID sent to the edge function
@@ -87,6 +88,14 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     dashboardUrl: 'https://api.together.ai/settings/api-keys',
     secretName: 'TOGETHER_AI_API_KEY',
     description: 'State-of-the-art code generation models ($1 free credit)',
+  },
+  cloudflare: {
+    id: 'cloudflare',
+    label: 'Cloudflare AI',
+    color: '#F48120',
+    dashboardUrl: 'https://dash.cloudflare.com/profile/api-tokens',
+    secretName: 'CLOUDFLARE_AI_API_KEY',
+    description: '10k free neurons/day · zero cold start on Cloudflare Pages',
   },
 };
 
@@ -188,8 +197,10 @@ export const ALL_MODELS: ModelOption[] = [
   },
 
   // ── Cerebras ─────────────────────────────────────────
+  // Note: ID uses cerebras/ prefix so edge function routing
+  // disambiguates from Groq's llama-3.3-70b-versatile
   {
-    id: 'llama-3.3-70b',
+    id: 'cerebras/llama-3.3-70b',
     label: 'Llama 3.3 70B (Cerebras)',
     provider: 'cerebras',
     providerLabel: 'Cerebras',
@@ -200,6 +211,21 @@ export const ALL_MODELS: ModelOption[] = [
     speed: 'blazing',
     isFree: true,
     requiresSecret: 'CEREBRAS_API_KEY',
+  },
+
+  // ── Cloudflare Workers AI ────────────────────────────
+  {
+    id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    label: 'Llama 3.3 70B (Cloudflare)',
+    provider: 'cloudflare',
+    providerLabel: 'Cloudflare AI',
+    description: '10k free neurons/day · edge-native, zero cold start',
+    badge: 'Edge',
+    badgeColor: '#F48120',
+    contextWindow: '128K',
+    speed: 'fast',
+    isFree: true,
+    requiresSecret: 'CLOUDFLARE_AI_API_KEY',
   },
 
   // ── Together AI ──────────────────────────────────────

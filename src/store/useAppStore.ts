@@ -172,6 +172,8 @@ export interface AppState {
   updateMessage: (convId: string, msgId: string, patch: Partial<AgentMessage>) => void;
   setIsThinking: (v: boolean) => void;
   setStreamingMessageId: (id: string | null) => void;
+  appendStreamToken: (convId: string, msgId: string, fullText: string) => void;
+  cancelStream: () => void;
   setPendingActions: (actions: AgentAction[]) => void;
   updateActionStatus: (
     msgId: string,
@@ -630,6 +632,20 @@ export const useAppStore = create<AppState>()(
         setStreamingMessageId: (id) =>
           set((state) => {
             state.streamingMessageId = id;
+          }),
+
+        appendStreamToken: (convId, msgId, fullText) =>
+          set((state) => {
+            const msgs = state.messages[convId];
+            if (!msgs) return;
+            const msg = msgs.find((m) => m.id === msgId);
+            if (msg) msg.content = fullText;
+          }),
+
+        cancelStream: () =>
+          set((state) => {
+            state.isThinking = false;
+            state.streamingMessageId = null;
           }),
 
         setPendingActions: (actions) =>

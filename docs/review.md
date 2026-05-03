@@ -251,9 +251,75 @@ This document tracks everything that was intentionally deferred, skipped, partia
 
 ---
 
-## Phase 11 — Multi-Provider AI Agent
+## Phase 12 — Full SSE Streaming + Provider Expansion
 
 ### ✅ Completed
+
+**Typed SSE Streaming Protocol (edge function v3)**
+- New `buildStreamingResponse()` function in `agent-inference/index.ts` wraps any provider's upstream SSE in our typed envelope
+- Frame types: `{t:'token',v:string}` for text deltas, `{t:'done',actions,steps,meta}` as terminal frame, `{t:'error',message}` for failures
+- Accumulates `fullText` across all tokens → parses JSON once at stream end → `validateActions()` before sending `done` frame
+- `\x00REPLACE\x00` signal handles models that stream raw JSON wrapper instead of plain text (e.g. `{"final":"...`)
+- `X-Accel-Buffering: no` header disables nginx proxy buffering
+- Shared utilities extracted to `supabase/functions/_shared/contextTrimmer.ts` and `supabase/functions/_shared/actionValidator.ts`
+
+**`useStreamingAgent` hook** (`src/hooks/useStreamingAgent.ts`)
+- Owns entire streaming lifecycle: session refresh → fetch with `stream:true` → ReadableStream line-by-line SSE parsing → Zustand writes → AbortController cancellation
+- Uses `fetch()` directly to the Supabase functions URL (not `supabase.functions.invoke`) so streaming works correctly
+- Handles `\x00REPLACE\x00` signal: replaces accumulated text rather than appending
+- Strips JSON wrapper regex (`{"final":"`) so chat shows clean text even when model streams raw JSON
+- On `t:'done'` frame: calls `updateMessage` with full actions array → ActionCards appear after text completes
+- AbortError (cancel) preserves partial text in the bubble
+- Per-provider 503 error shows actionable toast naming the exact Supabase secret to add
+
+**Zustand store additions** (`src/store/useAppStore.ts`)
+- `appendStreamToken(convId, msgId, fullText)` — replaces message content with the latest accumulated text (not append — prevents double-writing)
+- `cancelStream()` — resets `isThinking` + `streamingMessageId` synchronously
+- `setPendingActions` / `setStreamingMessageId` already existed
+
+**`AgentMessage` component** (`src/components/features/AgentMessage.tsx`)
+- New dedicated component extracted from AgentChat
+- `<StreamingCursor />` — inline `2px` block cursor with `streaming-cursor-blink` animation (defined in tailwind.config.ts keyframes)
+- Cursor appears at end of text when `isCurrentlyStreaming === true`, disappears when `done` frame arrives
+- `<ThinkingDots />` shown when `content === ''` and still streaming (initial wait)
+- ActionCards only render after `isCurrentlyStreaming === false` (avoids flickering during token stream)
+
+**Tailwind animations added** (`tailwind.config.ts`)
+- `streaming-cursor-blink`: 1s step-end infinite (matches terminal cursor feel)
+- `thinking-bounce`: 1.2s ease-in-out (3-dot agent thinking animation)
+- `fade-up`: 0.2s ease-out (new message entrance)
+
+**AgentChat refactor** (`src/components/features/AgentChat.tsx`)
+- Removed old `handleSend` fetch logic → replaced with `useStreamingAgent().sendMessage()`
+- Added **Stop button** (red Square icon) visible only while `isThinking === true` → calls `cancelStream()`
+- `AgentMessageBubble` replaced by `AgentMessageBubble` from `AgentMessage.tsx` with `isCurrentlyStreaming` prop
+- Model selector and pinned context chips unchanged
+
+**Multi-provider expansion**
+- Fixed Cerebras model ID: `llama-3.3-70b` → `cerebras/llama-3.3-70b` (prevents routing collision with Groq's `llama-3.3-70b-versatile`)
+- Added Cloudflare Workers AI provider: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (requires `CLOUDFLARE_AI_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` secrets)
+- Cloudflare routing in edge function: `@cf/*` or `cloudflare/*` prefix → `https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1`
+- All 7 providers now in `PROVIDERS` constant and `ALL_MODELS` array
+- Total model count: 11 models across 7 providers
+
+### Required Secrets (all added by user)
+| Secret | Provider |
+|---|---|
+| `ONSPACE_AI_API_KEY` | OnSpace AI (default, already set) |
+| `GOOGLE_AI_API_KEY` | Google AI Studio |
+| `GROQ_API_KEY` | Groq Cloud |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `CEREBRAS_API_KEY` | Cerebras |
+| `TOGETHER_AI_API_KEY` | Together AI |
+| `CLOUDFLARE_AI_API_KEY` | Cloudflare Workers AI |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare (needed alongside API key) |
+
+### ⚠️ Deferred
+- Cloudflare ACCOUNT_ID: must be added as a separate Supabase secret for Cloudflare models to route correctly
+- SSE streaming client-side for non-streaming fallback path (non-streaming path still works for all providers)
+- Per-model token usage breakdown (all increments go to single `ai_requests_used` counter)
+
+
 - `src/types/models.ts` — `ALL_MODELS` (10 models across 6 providers), `PROVIDERS` meta, `getModelById()`, `getModelsByProvider()`, `DEFAULT_MODEL_ID`
 - `src/store/useAppStore.ts` — `selectedModelId` added to agent slice (persisted), `setSelectedModel(id)` action
 - `src/components/features/AgentChat.tsx` — `<ModelSelector />` glassmorphism dropdown: grouped by provider, color dots, speed badges (Blazing/Free/Best Code), context window labels, onselect toast

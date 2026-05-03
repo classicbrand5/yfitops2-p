@@ -235,10 +235,7 @@ Single Zustand store with `subscribeWithSelector` + `persist` (localStorage) + `
 
 ## 4.5 Multi-Provider AI System
 
-### Supported Providers & Models
-
-The model selector in AgentChat lets users switch between any of these providers at runtime.
-The selected model ID is sent to `agent-inference` which routes to the correct provider.
+### Supported Providers & Models (11 total)
 
 | Provider | Model IDs | Speed | Free Tier | Secret Required |
 |---|---|---|---|---|
@@ -246,40 +243,40 @@ The selected model ID is sent to `agent-inference` which routes to the correct p
 | Google AI Studio | `gemini-2.5-flash-preview-05-20`, `gemini-2.0-flash` | Fast | 15 RPM / 1500 req/day | `GOOGLE_AI_API_KEY` |
 | Groq Cloud | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768` | 🔥 Blazing (600+ tok/s) | Generous | `GROQ_API_KEY` |
 | OpenRouter | `deepseek/deepseek-r1:free`, `google/gemma-3-27b-it:free` | Normal | 200+ free models | `OPENROUTER_API_KEY` |
-| Cerebras | `llama-3.3-70b` (prefix: `cerebras/`) | 🔥 Ultra (2000+ tok/s) | Generous | `CEREBRAS_API_KEY` |
+| Cerebras | `cerebras/llama-3.3-70b` | 🔥 Ultra (2000+ tok/s) | Generous | `CEREBRAS_API_KEY` |
 | Together AI | `Qwen/Qwen2.5-Coder-32B-Instruct` | Normal | $1 free credit | `TOGETHER_AI_API_KEY` |
+| Cloudflare AI | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Fast | 10k neurons/day | `CLOUDFLARE_AI_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` |
 
-### Provider Routing Logic (agent-inference edge function)
+### SSE Streaming Protocol (Phase 12)
 
-The `resolveProvider(modelId)` function determines which API key + base URL to use:
+All responses use typed SSE frames:
+```
+data: {"t":"token","v":"chunk text"}    ← rendered live in chat
+data: {"t":"done","actions":[…],"steps":{},"meta":{…}}  ← hydrates ActionCards
+data: {"t":"error","message":"…"}      ← stream-level error
+data: [DONE]                             ← sentinel
+```
+
+The `useStreamingAgent` hook owns the full streaming lifecycle:
+- `fetch()` to Supabase Functions URL with `stream: true` in body
+- `ReadableStream` + `TextDecoderStream` for line-by-line SSE parsing
+- Token accumulation + JSON wrapper stripping (handles models that stream raw `{"final":"…`)
+- `AbortController` for Stop button cancellation (preserves partial text)
+- `\x00REPLACE\x00` signal: edge function re-emits just the `final` field when model streamed raw JSON
+
+### Provider Routing Logic (agent-inference v3)
+
+`resolveProvider(modelId)` pattern matching:
 - `gemini-*` (no `google/` prefix) → Google AI Studio
+- `cerebras/*` → Cerebras (strips prefix before API call)
 - `llama-*`, `mixtral-*` → Groq Cloud
-- `cerebras/*` → Cerebras (strips prefix before sending to API)
-- `deepseek/*`, `google/gemma*`, `*:free` → OpenRouter
+- `deepseek/*`, `google/gemma*`, `*:free` → OpenRouter (+ `HTTP-Referer` / `X-Title` headers)
 - `Qwen/*`, `mistralai/*` → Together AI
-- Everything else → OnSpace AI (default)
+- `@cf/*`, `cloudflare/*` → Cloudflare Workers AI (requires `CLOUDFLARE_ACCOUNT_ID`)
+- everything else → OnSpace AI (default)
 
-All providers use OpenAI-compatible `/chat/completions` endpoints.
-OpenRouter receives extra `HTTP-Referer` and `X-Title` headers per their requirements.
-`response_format: json_object` is only sent to providers that support it.
-
-### Model Definition Files
-- `src/types/models.ts` — `ALL_MODELS`, `PROVIDERS`, `DEFAULT_MODEL_ID`, `getModelById()`, `getModelsByProvider()`
-- `src/store/useAppStore.ts` — `selectedModelId` (persisted), `setSelectedModel(modelId)` action
-- `src/components/features/AgentChat.tsx` — `<ModelSelector />` component (grouped dropdown with badges, speed indicators, provider color dots)
-
-### Adding a New Provider
-1. Add to `PROVIDERS` in `src/types/models.ts`
-2. Add model(s) to `ALL_MODELS` with correct `provider`, `requiresSecret`, and metadata
-3. Add routing logic in `resolveProvider()` in `supabase/functions/agent-inference/index.ts`
-4. Add the API key as a Supabase secret
-
-### Slash Commands
-| Command | Mode | Edge Function Behavior |
-|---|---|---|
-| `/review <path>` | `CODE_REVIEW_MODE` | Structured code review with score, issues, fix actions |
-| `/explain <text>` | `EXPLAIN_MODE` | TL;DR + step-by-step walkthrough, no actions |
-| `/test <text>` | `TEST_MODE` | Generates Vitest test file as `write_file` action |
+### Streaming Cursor Animation
+The `<StreamingCursor />` component in `AgentMessage.tsx` renders a `2px` block that blinks via `streaming-cursor-blink` (1s step-end infinite) from `tailwind.config.ts`. The cursor disappears the moment the `done` frame arrives and `isCurrentlyStreaming` becomes `false`.
 
 ---
 

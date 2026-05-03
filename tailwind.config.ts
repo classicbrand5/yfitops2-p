@@ -139,11 +139,26 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "streaming-cursor-blink": {
+          "0%, 100%": { opacity: "1" },
+          "50%":      { opacity: "0" },
+        },
+        "thinking-bounce": {
+          "0%, 60%, 100%": { transform: "translateY(0)" },
+          "30%":           { transform: "translateY(-4px)" },
+        },
+        "fade-up": {
+          "0%":   { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
-        "scale-in": "scale-in 180ms var(--ease-out-back) both",
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        "scale-in":               "scale-in 180ms var(--ease-out-back) both",
+        "accordion-down":         "accordion-down 0.2s ease-out",
+        "accordion-up":           "accordion-up 0.2s ease-out",
+        "streaming-cursor-blink": "streaming-cursor-blink 1s step-end infinite",
+        "thinking-bounce":        "thinking-bounce 1.2s ease-in-out infinite",
+        "fade-up":                "fade-up 0.2s ease-out both",
       },
       transitionTimingFunction: {
         spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
