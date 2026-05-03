@@ -275,16 +275,19 @@ This document tracks everything that was intentionally deferred, skipped, partia
   - SSE streaming pass-through when `stream: true`
   - Singleton admin client (module-level, reused across warm Deno invocations)
 
-### ⚠️ Required Secrets (add in Supabase → Project Settings → Edge Functions → Secrets)
-| Secret | Provider | Free Tier |
+### ✅ Confirmed Configured (All provider keys now live)
+| Secret | Provider | Status |
 |---|---|---|
-| `GOOGLE_AI_API_KEY` | Google AI Studio | 15 RPM / 1500 req/day |
-| `GROQ_API_KEY` | Groq Cloud | Very generous free tier |
-| `OPENROUTER_API_KEY` | OpenRouter | Free models always available |
-| `CEREBRAS_API_KEY` | Cerebras | Generous free tier |
-| `TOGETHER_AI_API_KEY` | Together AI | $1 free credit |
+| `ONSPACE_AI_API_KEY` | OnSpace AI | ✅ Pre-configured |
+| `GOOGLE_AI_API_KEY` | Google AI Studio | ✅ Configured |
+| `GROQ_API_KEY` | Groq Cloud | ✅ Configured |
+| `OPENROUTER_API_KEY` | OpenRouter | ✅ Configured |
+| `CEREBRAS_API_KEY` | Cerebras | ✅ Configured |
+| `TOGETHER_AI_API_KEY` | Together AI | ✅ Configured |
 
-Note: `ONSPACE_AI_API_KEY` is already set. OnSpace AI (Gemini 2.5 Flash) works out of the box.
+### ✅ Routing Bug Fixed
+- **Cerebras model ID corrected**: Changed from `llama-3.3-70b` (ambiguous — matched Groq) to `cerebras/llama-3.3-70b` in `src/types/models.ts`. The `cerebras/` prefix is stripped by `normalizeModelId()` in the edge function before calling the Cerebras API, so no change needed on the API side.
+- **Provider check order corrected**: In `agent-inference/index.ts`, Cerebras (`cerebras/*`) is now checked before Groq (`llama-*`, `mixtral-*`) to prevent ambiguous model IDs falling through to the wrong provider.
 
 ### ⚠️ Deferred / Pending
 - SSE streaming client-side reader (edge function supports `stream: true`, AgentChat uses non-streaming invoke)

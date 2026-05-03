@@ -189,8 +189,10 @@ export const ALL_MODELS: ModelOption[] = [
 
   // ── Cerebras ─────────────────────────────────────────
   {
-    id: 'llama-3.3-70b',
+    id: 'cerebras/llama-3.3-70b',
     label: 'Llama 3.3 70B (Cerebras)',
+    // NOTE: The 'cerebras/' prefix is stripped by normalizeModelId() in the edge function
+    // before forwarding to the Cerebras API. This prefix is only used for routing.
     provider: 'cerebras',
     providerLabel: 'Cerebras',
     description: '2000+ tok/s · streaming tokens appear near-instantly',
@@ -234,3 +236,13 @@ export function getModelsByProvider(): Record<ProviderId, ModelOption[]> {
 
 // ── Default model ID ─────────────────────────────────────
 export const DEFAULT_MODEL_ID = 'google/gemini-2.5-flash';
+
+// ── Model ID routing notes ────────────────────────────────
+// The model ID sent to agent-inference determines which provider is used:
+//   'google/gemini-*'         → OnSpace AI (default proxy)
+//   'gemini-*' (no google/)   → Google AI Studio (GOOGLE_AI_API_KEY)
+//   'llama-*', 'mixtral-*'    → Groq Cloud (GROQ_API_KEY)
+//   'cerebras/*'              → Cerebras (CEREBRAS_API_KEY); prefix stripped before API call
+//   'deepseek/*', '*:free'    → OpenRouter (OPENROUTER_API_KEY)
+//   'Qwen/*', 'mistralai/*'   → Together AI (TOGETHER_AI_API_KEY)
+// See supabase/functions/agent-inference/index.ts → resolveProvider()
