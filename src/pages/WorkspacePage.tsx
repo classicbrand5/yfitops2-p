@@ -12,6 +12,7 @@ import { useWebContainer } from '@/hooks/useWebContainer';
 import { MonacoEditor } from '@/components/features/Editor/MonacoEditor';
 import { AgentChat } from '@/components/features/AgentChat';
 import { WorkspaceErrorBoundary } from '@/components/layout/WorkspaceErrorBoundary';
+import { PanelErrorBoundary } from '@/components/ui/PanelErrorBoundary'; // Phase 2 fix: per-panel error isolation
 import { WebContainerError } from '@/lib/errors';
 import {
   FolderOpen, Code2, Terminal, Bot,
@@ -127,10 +128,13 @@ function BootOverlay({ progress, error }: { progress: number; error?: string | n
 // ─────────────────────────────────────────────────────────
 
 function ExplorerBody() {
+  // Phase 2 fix: Explorer wrapped in PanelErrorBoundary
   return (
-    <div className="h-full overflow-hidden">
-      <FileTree />
-    </div>
+    <PanelErrorBoundary panelName="Explorer">
+      <div className="h-full overflow-hidden">
+        <FileTree />
+      </div>
+    </PanelErrorBoundary>
   );
 }
 
@@ -209,9 +213,12 @@ function EditorBody() {
           ))}
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <MonacoEditor />
-      </div>
+      {/* Phase 2 fix: Editor wrapped in PanelErrorBoundary */}
+      <PanelErrorBoundary panelName="Editor">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <MonacoEditor />
+        </div>
+      </PanelErrorBoundary>
     </div>
   );
 }
@@ -245,12 +252,15 @@ function TerminalBody({ container }: { container: import('@webcontainer/api').We
     );
   }
 
+  // Phase 2 fix: Terminal wrapped in PanelErrorBoundary
   return (
-    <RealTerminalPanel
-      key={activeTerminalId}
-      container={container}
-      sessionId={activeTerminalId}
-    />
+    <PanelErrorBoundary panelName="Terminal">
+      <RealTerminalPanel
+        key={activeTerminalId}
+        container={container}
+        sessionId={activeTerminalId}
+      />
+    </PanelErrorBoundary>
   );
 }
 
@@ -312,7 +322,10 @@ function ChatPanel() {
         </button>
       }
     >
-      <AgentChat />
+      {/* Phase 2 fix: AgentChat wrapped in PanelErrorBoundary */}
+      <PanelErrorBoundary panelName="Agent Chat">
+        <AgentChat />
+      </PanelErrorBoundary>
     </PanelShell>
   );
 }

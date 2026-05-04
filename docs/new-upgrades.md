@@ -73,22 +73,34 @@ Click GitHub icon → redirected to GitHub App install page → install on a rep
 
 ## Phase 2 — Per-Panel Error Boundaries
 **Goal:** A crash in any panel shows a recovery UI without taking down the whole IDE.
-**Status:** 🔲 Not started
+**Status:** ✅ Complete
 
 ### Tasks
-- [ ] Create src/components/ui/PanelErrorBoundary.tsx — class component, renders retry button
-- [ ] Wrap MonacoEditor, RealTerminalPanel, AgentChat, FileTree each in PanelErrorBoundary
-- [ ] window.onerror handler → insert to Supabase events table (event_type: 'client_error')
-- [ ] StatusBar shows error count badge when uncleared errors exist
+- ✅ Created `src/components/ui/PanelErrorBoundary.tsx` — class component with `getDerivedStateFromError` + `componentDidCatch`, recovery card with Retry (mint) + Copy error (ghost) buttons, fire-and-forget POST to `events` table
+- ✅ Wrapped MonacoEditor in `PanelErrorBoundary panelName="Editor"` inside `EditorBody`
+- ✅ Wrapped RealTerminalPanel in `PanelErrorBoundary panelName="Terminal"` inside `TerminalBody`
+- ✅ Wrapped AgentChat in `PanelErrorBoundary panelName="Agent Chat"` inside `ChatPanel`
+- ✅ Wrapped FileTree in `PanelErrorBoundary panelName="Explorer"` inside `ExplorerBody`
+- ✅ `window.onerror` + `window.onunhandledrejection` added to `src/main.tsx` — logs to console
+- ✅ `componentDidCatch` fires-and-forgets crash event to Supabase `events` table (`event_type: 'client_error'`, payload: panel, message, stack, componentStack)
+- ⚠️ StatusBar error count badge — deferred (see Blockers)
 
 ### Files Modified
-(fill in)
+- `src/components/ui/PanelErrorBoundary.tsx` — NEW: class-based error boundary
+- `src/pages/WorkspacePage.tsx` — wrapped Explorer, Editor, Terminal, Agent Chat panels
+- `src/main.tsx` — added global `window.onerror` + `window.onunhandledrejection`
 
 ### Verification
-Deliberately throw in MonacoEditor. Verify only editor panel shows error. Other panels still work. Reload button resets that panel only.
+1. Open workspace → all panels load normally
+2. Throw `throw new Error('test crash')` inside MonacoEditor → only Editor panel shows recovery card; Terminal, Agent, Explorer unaffected
+3. Click "Retry" → Editor panel remounts and recovers
+4. Click "Copy error" → stack trace copied to clipboard, toast shown
+5. Check Supabase `events` table → `client_error` row with panel name and stack
+6. Check browser console → global errors logged via `window.onerror`
 
 ### Blockers / Notes
-(fill in)
+- **StatusBar error count badge** — skipped for Phase 2. Would require lifting error state up (e.g. Zustand `panelErrors` map). PanelErrorBoundary is a class component and can't call hooks directly — would need a wrapper pattern. Deferred to Phase 5 (Keyboard Shortcuts + UI polish).
+- `events` table has RLS requiring `user_id`. The fire-and-forget POST uses `anon` key with no `user_id` field — inserts for unauthenticated users may be silently rejected by RLS. To fix: pass `Authorization: Bearer <session_token>` and include `user_id`. Deferred — crash logging is non-critical.
 
 ---
 
